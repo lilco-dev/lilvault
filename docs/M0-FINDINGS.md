@@ -2,7 +2,7 @@
 
 ## Decision
 
-**Awaiting interactive login and disposable vault selection / M0 not passed.** Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. The operator rebooted the host, resolving the kernel/module mismatch. Normal bridge-network image build and offline CLI checks now pass. No host packages or networking settings were changed by the agent. Sync authentication and round-trip tests remain outstanding.
+**Awaiting interactive E2EE setup of remote vault `test` / M0 not passed.** Login persistence is verified; sync round trips are not. Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. The operator rebooted the host, resolving the kernel/module mismatch. Normal bridge-network image build and offline CLI checks now pass. No host packages or networking settings were changed by the agent. Sync authentication and round-trip tests remain outstanding.
 
 ## Initial investigation — 2026-11-06
 
@@ -116,11 +116,31 @@ sudo docker run --rm -it --log-driver=none \
   lilvault-sync:m0 login
 ```
 
-Enter account credentials/2FA through the official prompts. Do not paste passwords, authentication tokens, encryption passwords, or credential-file contents into chat. The container is removed after login; the dedicated home volume remains. This persists the whole home directory conservatively; actual credential paths and successful reuse in a new container still require verification. No remote vault is selected or synchronized by this login command.
+Enter account credentials/2FA through the official prompts. Do not paste passwords, authentication tokens, encryption passwords, or credential-file contents into chat. The container is removed after login; the dedicated home volume remains. This persists the whole home directory conservatively; actual credential paths still require verification. Subsequent fresh-container login reuse passed as recorded below. No remote vault is selected or synchronized by this login command.
+
+## Login persistence and first vault preparation
+
+The operator completed interactive login and approved the E2EE remote vault named `test`. A fresh container ran `sync-list-remote --json` using only the persistent home volume. It returned exactly one vault named `test`; unrelated vault names and raw account output were not printed. This verifies reuse of saved authentication, not synchronization or health.
+
+Created `/home/arch/lilvault/data/vaults/test` as a new empty directory with UID/GID `1000:1000` and mode `0700`; existing directories would have caused the operation to fail rather than be reused or overwritten. An offline container verified that this separate bind mount is empty and writable by the non-root runtime. No note files or encryption secrets were written by the agent.
+
+### Next operator action: E2EE vault setup
+
+Run locally and enter the vault encryption password at the official prompt, not as a command-line argument:
+
+```sh
+sudo docker run --rm -it --log-driver=none \
+  --mount type=volume,source=lilvault-m0-auth,target=/home/node \
+  --mount type=bind,source=/home/arch/lilvault/data/vaults/test,target=/vault \
+  lilvault-sync:m0 sync-setup \
+  --vault test --path /vault --device-name lilvault-zoro-m0
+```
+
+This configures only the approved disposable vault. Do not run a concurrent Headless process against the same local path. Actual setup completion, initial pull, encryption-key persistence, and bidirectional synchronization remain unverified.
 
 ## Operator input required
 
-1. Complete interactive login and select the first disposable Sync vault. Do not send private keys or account passwords in chat.
+1. Complete interactive E2EE setup for `test`; do not send account or encryption passwords in chat.
 2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
 3. A second disposable vault is required for M0 multi-vault acceptance.
 4. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
@@ -129,9 +149,9 @@ Enter account credentials/2FA through the official prompts. Do not paste passwor
 
 1. Local read-only host inspection is complete; use existing `sudo -n docker` access for isolated lilvault containers.
 2. Report findings and request approval for any missing host-level prerequisites. Keep all work isolated from existing vaults/services.
-3. Exact Node/Headless image build and supported CLI help checks are complete. Next, configure separate vault storage after operator selection.
+3. Exact Node/Headless image build, supported CLI help checks, and separate persistent vault mount preparation are complete.
 4. Identify actual account/config storage through supported CLI behavior. Persist credentials separately from vault data; keep gateway access to credentials impossible.
-5. Have the operator authenticate interactively and connect the approved disposable vault.
+5. Login is complete and saved authentication works in a fresh container. Have the operator connect the approved disposable vault through the E2EE prompt.
 6. Verify initial pull, local-to-Obsidian edits, Obsidian-to-local edits, and authentication/sync after container restart.
 7. Verify independent second-vault sync, external writes, conflicts, and offline recovery.
 8. Record exact commands, versions, paths, and observed outcomes. Only mark M0 passed after all required real tests succeed.
@@ -143,7 +163,8 @@ Enter account credentials/2FA through the official prompts. Do not paste passwor
 - Direct zoro host inspection: **passed**. An unnecessary SSH attempt failed but does not block local work.
 - Existing passwordless sudo Docker access: **passed**; no permission changes made.
 - Initial sync image build failed at Docker bridge setup. After operator reboot: **build passed**, Headless version/help checks passed, dedicated persistent home is writable as non-root.
-- Interactive login, credential reuse, vault setup, and actual synchronization: **not yet tested**.
+- Interactive login: **operator completed**. Credential reuse in a fresh container: **passed** via remote vault enumeration.
+- Separate persistent vault bind mount: **passed** empty/writable non-root check. E2EE vault setup, initial pull, and real synchronization: **not yet tested**.
 - Secret/data ignore checks: **passed** (10 ignored paths and 7 publishable exceptions); initial Markdown diagnostics and whitespace checks passed.
 - No Rust code exists; Cargo checks are not applicable yet.
 - No real Obsidian, Hermes, or MCP round trip has been demonstrated.

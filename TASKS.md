@@ -2,14 +2,15 @@
 
 ## Current status
 
-M0 is **awaiting interactive Obsidian login and disposable vault selection**. The operator rebooted zoro; the running kernel now matches its modules and the normal Docker build passed. The non-root image reports Headless `0.0.14`; CLI help and a persistent home volume are verified. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md) for commands and evidence. No sync acceptance tests have run. GitHub publication still awaits a repository visibility decision.
+M0 is **awaiting interactive E2EE setup for the approved remote vault `test`**. Login persisted successfully across fresh containers. The non-root image and separate persistent home/vault mounts are verified; the fresh local vault is `/home/arch/lilvault/data/vaults/test`. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md) for commands and evidence. No sync round-trip tests have run. GitHub publication still awaits a repository visibility decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
 - [ ] Confirm current official Obsidian Headless installation requirements and terms.
-- [ ] Build pinned Node/Headless Docker image with persistent credential and vault volumes.
-  - Image build, non-root runtime, and persistent credential-home volume verified; separate vault storage remains to be configured.
-- [ ] Authenticate interactively using supported CLI commands.
+- [x] Build pinned Node/Headless Docker image with persistent credential and vault volumes.
+  - Credential home uses Docker volume `lilvault-m0-auth`; vault uses a separate persistent bind mount. Both are writable by UID 1000.
+- [x] Authenticate interactively using supported CLI commands.
+  - Operator completed login; a fresh container successfully enumerated the approved remote vault without reauthentication.
 - [ ] Configure a disposable Obsidian Sync vault and verify initial pull.
 - [ ] Edit file locally and verify it appears in Obsidian.
 - [ ] Edit in Obsidian and verify it appears locally.
