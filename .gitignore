@@ -1,0 +1,21 @@
+# Local secrets and operator configuration
+.env
+.env.*
+!.env.example
+/config.toml
+/config.local.toml
+/secrets/
+
+# Vault contents, sync state, credentials, and local deployment data
+/data/
+/vaults/
+/state/
+/obsidian-auth/
+
+# Rust build output
+/target/
+
+# Editor and operating-system files
+.DS_Store
+*.swp
+*.swo

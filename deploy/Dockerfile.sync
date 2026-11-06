@@ -1,0 +1,10 @@
+# M0 candidate: verify installed CLI behavior before configuring credentials/volumes.
+FROM node:26.13.0-bookworm-slim
+
+RUN npm install --global --omit=dev obsidian-headless@0.0.14 \
+    && npm cache clean --force
+
+USER node
+WORKDIR /home/node
+ENTRYPOINT ["ob"]
+CMD ["--help"]
