@@ -2,7 +2,7 @@
 
 ## Decision
 
-**Live bidirectional sync testing of remote vault `test` / M0 not passed.** Unattended one-shot sync and continuous startup passed after E2EE setup; a human-observed round trip is still pending. Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. The operator rebooted the host, resolving the kernel/module mismatch. Normal bridge-network image build and offline CLI checks now pass. No host packages or networking settings were changed by the agent. Sync authentication and round-trip tests remain outstanding.
+**Real desktop/zoro round trip verified for remote vault `test` / M0 not passed.** Unattended sync passed after E2EE setup; the operator's requested desktop edit arrived locally. Container recreation also passed without prompts and retained the note; remaining M0 tests still gate M1. Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. The operator rebooted the host, resolving the kernel/module mismatch. Normal bridge-network image build and offline CLI checks now pass. No host packages or networking settings were changed by the agent. Sync authentication and round-trip tests remain outstanding.
 
 ## Initial investigation — 2026-11-06
 
@@ -160,11 +160,17 @@ Filesystem metadata inspection (no credential/config contents read) observed:
 
 A second fresh container, named `lilvault-m0-sync`, then started the same command with `--continuous` and also reported `Fully synced` without prompts. It is managed as process `lilvault-m0-test-continuous-sync`. Only this process owns the local test vault.
 
-After that readiness message, an exclusive filesystem create wrote `lilvault-m0-roundtrip.md` at `2026-11-06T04:14:42.321306+00:00`. Existing files were not overwritten. It contains a test heading, the creation timestamp, and `Obsidian reply: pending`. The running Headless process then logged `Uploading file lilvault-m0-roundtrip.md`, `Upload complete lilvault-m0-roundtrip.md`, and `Fully synced`. This verifies detection of a live external filesystem write and the client's reported upload completion. Human desktop visibility and a return edit remain pending; a local write alone is not proof of cloud sync.
+After that readiness message, an exclusive filesystem create wrote `lilvault-m0-roundtrip.md` at `2026-11-06T04:14:42.321306+00:00`. Existing files were not overwritten. It contains a test heading, the creation timestamp, and `Obsidian reply: pending`. The running Headless process then logged `Uploading file lilvault-m0-roundtrip.md`, `Upload complete lilvault-m0-roundtrip.md`, and `Fully synced`. This verifies detection of a live external filesystem write and the client's reported upload completion. The operator then confirmed completion of the requested desktop edit. The agent verified the exact line `Obsidian reply: hello from Obsidian` in the local note (178 bytes). This confirms desktop visibility and a real Obsidian-to-zoro return edit, not merely a local write or process-liveness assumption.
+
+## Container recreation test
+
+After verifying the desktop reply, the agent stopped only `lilvault-m0-sync` with `docker stop --timeout 15`. Its attached process exited successfully. An immediate recreation using the same name hit a Docker name conflict while automatic removal was still completing; no sync application failure or credential failure occurred. A subsequent inventory confirmed no active containers using this vault. A replacement container named `lilvault-m0-sync-resumed` started at `2026-11-06T04:20:45.084362706Z` with the same persistent mounts and continuous-sync command. It reported `Fully synced` without any interactive prompts. The container was confirmed running, and the original note still contained the exact desktop reply. This verifies persistence and resumption after container recreation; it is not a host-reboot or power-loss test.
+
+For scripts using `--rm`, do not assume `docker stop` has completed name removal before immediately reusing the name; verify removal or use a distinct replacement name after checking the old process is stopped.
 
 ## Operator input required
 
-1. In desktop Obsidian's `test` vault, check for `lilvault-m0-roundtrip.md` and change its last line to `Obsidian reply: hello from Obsidian`. Confirm when desktop Sync finishes; do not send account or encryption passwords in chat.
+1. The first desktop/zoro round trip is confirmed. Arrange a second disposable remote vault for the remaining multi-vault test; do not send account or encryption passwords in chat.
 2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
 3. A second disposable vault is required for M0 multi-vault acceptance.
 4. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
@@ -176,7 +182,7 @@ After that readiness message, an exclusive filesystem create wrote `lilvault-m0-
 3. Exact Node/Headless image build, supported CLI help checks, and separate persistent vault mount preparation are complete.
 4. Account/config storage paths were observed using filesystem metadata only. Keep the credential home separate from vault data and inaccessible to the future gateway.
 5. E2EE setup is complete; unattended saved authentication/decryption worked in both one-shot and continuous fresh containers.
-6. Verify initial pull, local-to-Obsidian edits, Obsidian-to-local edits, and authentication/sync after container restart.
+6. Initial sync, local-to-Obsidian visibility, Obsidian-to-local edits, and saved authentication/sync after container recreation are verified.
 7. Verify independent second-vault sync, external writes, conflicts, and offline recovery.
 8. Record exact commands, versions, paths, and observed outcomes. Only mark M0 passed after all required real tests succeed.
 
@@ -189,8 +195,10 @@ After that readiness message, an exclusive filesystem create wrote `lilvault-m0-
 - Initial sync image build failed at Docker bridge setup. After operator reboot: **build passed**, Headless version/help checks passed, dedicated persistent home is writable as non-root.
 - Interactive login: **operator completed**. Credential reuse in a fresh container: **passed** via remote vault enumeration.
 - Separate persistent vault bind mount: **passed** empty/writable non-root check. E2EE vault setup: **operator completed**.
-- Fresh-container unattended one-shot sync: **passed**, exit `0` and `Fully synced`; remote initially empty, so real file download remains unverified.
-- Fresh-container continuous sync startup: **passed**, `Fully synced`. Live external test-note detection and client-reported upload completion: **passed**. Human-observed desktop visibility and a return edit remain pending.
+- Fresh-container unattended one-shot sync: **passed**, exit `0` and `Fully synced`; initial remote was empty.
+- Fresh-container continuous sync startup: **passed**, `Fully synced`. Live external test-note detection/upload and human desktop visibility: **passed**.
+- Desktop-to-zoro return edit: **passed**; exact expected reply found in the local note.
+- Container recreation: **passed**; replacement reached `Fully synced` without prompts and retained the verified desktop reply. A same-name auto-removal race was handled by confirming the old container was gone and using a replacement name.
 - Secret/data ignore checks: **passed** (10 ignored paths and 7 publishable exceptions); initial Markdown diagnostics and whitespace checks passed.
 - No Rust code exists; Cargo checks are not applicable yet.
-- No real Obsidian, Hermes, or MCP round trip has been demonstrated.
+- A real Obsidian desktop/zoro round trip is demonstrated. No Rust gateway, Hermes operation, or MCP round trip has been implemented or demonstrated.

@@ -2,7 +2,7 @@
 
 ## Current status
 
-M0 is **testing live bidirectional sync for the approved remote vault `test`**. E2EE setup completed; fresh-container one-shot sync and continuous startup succeeded without prompts. The remote vault initially contained no Markdown notes, so download verification is still pending. A test note was created externally while continuous sync was running; desktop confirmation and a reply edit are required. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). GitHub publication still awaits a repository visibility decision.
+M0 has **verified a real desktop/zoro round trip for remote vault `test`**: the operator saw the uploaded note and the requested desktop reply arrived on zoro. Container recreation also passed without prompts and retained the desktop reply. Second-vault, offline, conflict, and terms checks still gate M1. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). GitHub publication still awaits a repository visibility decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
@@ -11,12 +11,14 @@ M0 is **testing live bidirectional sync for the approved remote vault `test`**. 
   - Credential home uses Docker volume `lilvault-m0-auth`; vault uses a separate persistent bind mount. Both are writable by UID 1000.
 - [x] Authenticate interactively using supported CLI commands.
   - Operator completed login; a fresh container successfully enumerated the approved remote vault without reauthentication.
-- [ ] Configure a disposable Obsidian Sync vault and verify initial pull.
-  - E2EE setup and an empty-vault initial sync passed; a real desktop-to-zoro note/edit still needs verification.
-- [ ] Edit file locally and verify it appears in Obsidian.
-  - Live external create detected; Headless logged `Upload complete lilvault-m0-roundtrip.md`. Desktop confirmation pending.
-- [ ] Edit in Obsidian and verify it appears locally.
-- [ ] Restart container; verify credentials and sync resume.
+- [x] Configure a disposable Obsidian Sync vault and verify initial pull.
+  - E2EE setup and an empty-vault initial sync passed; a subsequent real desktop edit was downloaded and verified.
+- [x] Edit file locally and verify it appears in Obsidian.
+  - Live external create detected and uploaded; operator confirmed desktop visibility by editing the note.
+- [x] Edit in Obsidian and verify it appears locally.
+  - Verified `Obsidian reply: hello from Obsidian` in the local test note.
+- [x] Restart container; verify credentials and sync resume.
+  - Stopped the original container and recreated it with the same persistent mounts; it reached `Fully synced` without prompts and retained the verified desktop reply.
 - [ ] Configure second vault with independent local directory/process.
 - [ ] Test external writes, conflicting edits, and offline behavior; document findings.
 - [ ] Record exact package version, commands, storage paths, and M0 go/no-go decision.
