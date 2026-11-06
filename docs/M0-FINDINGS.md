@@ -2,7 +2,7 @@
 
 ## Decision
 
-**Awaiting interactive E2EE setup of remote vault `test` / M0 not passed.** Login persistence is verified; sync round trips are not. Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. The operator rebooted the host, resolving the kernel/module mismatch. Normal bridge-network image build and offline CLI checks now pass. No host packages or networking settings were changed by the agent. Sync authentication and round-trip tests remain outstanding.
+**Live bidirectional sync testing of remote vault `test` / M0 not passed.** Unattended one-shot sync and continuous startup passed after E2EE setup; a human-observed round trip is still pending. Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. The operator rebooted the host, resolving the kernel/module mismatch. Normal bridge-network image build and offline CLI checks now pass. No host packages or networking settings were changed by the agent. Sync authentication and round-trip tests remain outstanding.
 
 ## Initial investigation — 2026-11-06
 
@@ -136,11 +136,35 @@ sudo docker run --rm -it --log-driver=none \
   --vault test --path /vault --device-name lilvault-zoro-m0
 ```
 
-This configures only the approved disposable vault. Do not run a concurrent Headless process against the same local path. Actual setup completion, initial pull, encryption-key persistence, and bidirectional synchronization remain unverified.
+This configures only the approved disposable vault. Do not run a concurrent Headless process against the same local path. The operator completed setup; subsequent unattended sync results are recorded below.
+
+## Unattended sync and external-write test
+
+After the operator completed E2EE setup, a fresh noninteractive container ran:
+
+```sh
+sudo -n docker run --rm --name lilvault-m0-initial-sync --log-driver=none \
+  --mount type=volume,source=lilvault-m0-auth,target=/home/node \
+  --mount type=bind,source=/home/arch/lilvault/data/vaults/test,target=/vault \
+  lilvault-sync:m0 sync --path /vault
+```
+
+It exited `0`, reported a successful connection and `Fully synced`, and did not prompt for account or encryption credentials. Logged settings were bidirectional sync, conflict strategy `merge`, device `lilvault-zoro-m0`, and config syncing disabled. This is the Headless client's reported default merge behavior, not a gateway conflict guarantee. No Markdown notes were downloaded because the remote vault appeared empty.
+
+Filesystem metadata inspection (no credential/config contents read) observed:
+
+- `/home/node/.config/obsidian-headless/auth_token`, mode `0600`.
+- `/home/node/.config/obsidian-headless/sync/<remote-vault-id>/config.json`, mode `0600`.
+- Per-vault `state.db` and `sync.log` in that same sync-only directory, mode `0644`.
+- The local `.obsidian` directory appeared after initial sync.
+
+A second fresh container, named `lilvault-m0-sync`, then started the same command with `--continuous` and also reported `Fully synced` without prompts. It is managed as process `lilvault-m0-test-continuous-sync`. Only this process owns the local test vault.
+
+After that readiness message, an exclusive filesystem create wrote `lilvault-m0-roundtrip.md` at `2026-11-06T04:14:42.321306+00:00`. Existing files were not overwritten. It contains a test heading, the creation timestamp, and `Obsidian reply: pending`. The running Headless process then logged `Uploading file lilvault-m0-roundtrip.md`, `Upload complete lilvault-m0-roundtrip.md`, and `Fully synced`. This verifies detection of a live external filesystem write and the client's reported upload completion. Human desktop visibility and a return edit remain pending; a local write alone is not proof of cloud sync.
 
 ## Operator input required
 
-1. Complete interactive E2EE setup for `test`; do not send account or encryption passwords in chat.
+1. In desktop Obsidian's `test` vault, check for `lilvault-m0-roundtrip.md` and change its last line to `Obsidian reply: hello from Obsidian`. Confirm when desktop Sync finishes; do not send account or encryption passwords in chat.
 2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
 3. A second disposable vault is required for M0 multi-vault acceptance.
 4. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
@@ -150,8 +174,8 @@ This configures only the approved disposable vault. Do not run a concurrent Head
 1. Local read-only host inspection is complete; use existing `sudo -n docker` access for isolated lilvault containers.
 2. Report findings and request approval for any missing host-level prerequisites. Keep all work isolated from existing vaults/services.
 3. Exact Node/Headless image build, supported CLI help checks, and separate persistent vault mount preparation are complete.
-4. Identify actual account/config storage through supported CLI behavior. Persist credentials separately from vault data; keep gateway access to credentials impossible.
-5. Login is complete and saved authentication works in a fresh container. Have the operator connect the approved disposable vault through the E2EE prompt.
+4. Account/config storage paths were observed using filesystem metadata only. Keep the credential home separate from vault data and inaccessible to the future gateway.
+5. E2EE setup is complete; unattended saved authentication/decryption worked in both one-shot and continuous fresh containers.
 6. Verify initial pull, local-to-Obsidian edits, Obsidian-to-local edits, and authentication/sync after container restart.
 7. Verify independent second-vault sync, external writes, conflicts, and offline recovery.
 8. Record exact commands, versions, paths, and observed outcomes. Only mark M0 passed after all required real tests succeed.
@@ -164,7 +188,9 @@ This configures only the approved disposable vault. Do not run a concurrent Head
 - Existing passwordless sudo Docker access: **passed**; no permission changes made.
 - Initial sync image build failed at Docker bridge setup. After operator reboot: **build passed**, Headless version/help checks passed, dedicated persistent home is writable as non-root.
 - Interactive login: **operator completed**. Credential reuse in a fresh container: **passed** via remote vault enumeration.
-- Separate persistent vault bind mount: **passed** empty/writable non-root check. E2EE vault setup, initial pull, and real synchronization: **not yet tested**.
+- Separate persistent vault bind mount: **passed** empty/writable non-root check. E2EE vault setup: **operator completed**.
+- Fresh-container unattended one-shot sync: **passed**, exit `0` and `Fully synced`; remote initially empty, so real file download remains unverified.
+- Fresh-container continuous sync startup: **passed**, `Fully synced`. Live external test-note detection and client-reported upload completion: **passed**. Human-observed desktop visibility and a return edit remain pending.
 - Secret/data ignore checks: **passed** (10 ignored paths and 7 publishable exceptions); initial Markdown diagnostics and whitespace checks passed.
 - No Rust code exists; Cargo checks are not applicable yet.
 - No real Obsidian, Hermes, or MCP round trip has been demonstrated.

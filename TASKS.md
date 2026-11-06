@@ -2,7 +2,7 @@
 
 ## Current status
 
-M0 is **awaiting interactive E2EE setup for the approved remote vault `test`**. Login persisted successfully across fresh containers. The non-root image and separate persistent home/vault mounts are verified; the fresh local vault is `/home/arch/lilvault/data/vaults/test`. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md) for commands and evidence. No sync round-trip tests have run. GitHub publication still awaits a repository visibility decision.
+M0 is **testing live bidirectional sync for the approved remote vault `test`**. E2EE setup completed; fresh-container one-shot sync and continuous startup succeeded without prompts. The remote vault initially contained no Markdown notes, so download verification is still pending. A test note was created externally while continuous sync was running; desktop confirmation and a reply edit are required. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). GitHub publication still awaits a repository visibility decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
@@ -12,7 +12,9 @@ M0 is **awaiting interactive E2EE setup for the approved remote vault `test`**. 
 - [x] Authenticate interactively using supported CLI commands.
   - Operator completed login; a fresh container successfully enumerated the approved remote vault without reauthentication.
 - [ ] Configure a disposable Obsidian Sync vault and verify initial pull.
+  - E2EE setup and an empty-vault initial sync passed; a real desktop-to-zoro note/edit still needs verification.
 - [ ] Edit file locally and verify it appears in Obsidian.
+  - Live external create detected; Headless logged `Upload complete lilvault-m0-roundtrip.md`. Desktop confirmation pending.
 - [ ] Edit in Obsidian and verify it appears locally.
 - [ ] Restart container; verify credentials and sync resume.
 - [ ] Configure second vault with independent local directory/process.
@@ -49,8 +51,10 @@ M0 is **awaiting interactive E2EE setup for the approved remote vault `test`**. 
 - [ ] Run fmt, clippy, unit/integration tests and record results.
 
 ## Open questions (resolve during M0)
-- [ ] Supported Headless authentication mechanism and credentials path.
-- [ ] Actual external filesystem change detection semantics.
+- [x] Supported Headless authentication mechanism and credentials path.
+  - Interactive `login`; observed account token and per-vault configuration beneath `/home/node/.config/obsidian-headless/`, persisted in the sync-only home volume.
+- [x] Actual external filesystem change detection semantics.
+  - Observed a new Markdown file written externally after continuous sync readiness being detected and uploaded; modify/delete behavior and conflicts still need testing.
 - [ ] Reliable sync health and conflict observability.
 - [ ] Preferred approved HTTPS/tunnel access to zoro.
 - [ ] Exact vault names/IDs and which disposable vault to use first.
