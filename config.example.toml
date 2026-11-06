@@ -1,0 +1,13 @@
+# Copy to config.toml (ignored by Git) and set an existing disposable vault path.
+[server]
+listen = "127.0.0.1:8737"
+
+[[vaults]]
+id = "test"
+path = "/absolute/path/to/disposable/vault"
+enabled = true
+
+[[agents]]
+name = "hermes"
+token_env = "LILVAULT_HERMES_TOKEN"
+permissions = ["test:read-write"]

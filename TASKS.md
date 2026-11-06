@@ -2,7 +2,7 @@
 
 ## Current status
 
-**M0 GO for M1/M2 development against disposable vaults; not production-ready.** Real desktop round trips, multi-vault isolation, container recreation, external create/atomic-update detection, and bounded offline failure/recovery are verified. Default Headless `merge` discarded the competing local line in the conflict probe despite reporting success; document this limit and test alternate conflict preservation before real-vault rollout. Both sync processes are running. Live same-process reconnection and boot autostart remain hardening work. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The operator approved public GitHub publication to `lilco-dev/lilvault`; remote transport still requires an operator decision.
+**M1 REST slice implemented and verified; M2 MCP is next. Not production-ready.** Real desktop round trips, multi-vault isolation, container recreation, external create/atomic-update detection, and bounded offline failure/recovery are verified. Default Headless `merge` discarded the competing local line in the conflict probe despite reporting success; document this limit and test alternate conflict preservation before real-vault rollout. Both sync processes are running. Live same-process reconnection and boot autostart remain hardening work. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The operator approved public GitHub publication to `lilco-dev/lilvault`; remote transport still requires an operator decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
@@ -27,12 +27,14 @@
 - [x] Record exact package version, commands, storage paths, and M0 go/no-go decision.
 
 ## M1 — Rust filesystem and REST
-- [ ] Scaffold Cargo workspace, configuration, logging, and Axum service.
-- [ ] Implement vault registry and per-agent bearer auth.
-- [ ] Implement secure path handling and Markdown-only file operations.
-- [ ] Implement ETag revision checks and serialized gateway writes.
-- [ ] Implement health, vault list, directory list, read, and write REST routes.
-- [ ] Add path traversal, ACL, precondition, and race tests.
+- [x] Scaffold Cargo workspace, configuration, logging, and Axum service.
+  - One Cargo package with separate modules, as permitted by the spec; split crates only if the vertical slice needs it.
+- [x] Implement vault registry and per-agent bearer auth.
+- [x] Implement secure path handling and Markdown-only file operations.
+- [x] Implement ETag revision checks and serialized gateway writes.
+- [x] Implement health, vault list, directory list, read, and write REST routes.
+- [x] Add path traversal, ACL, precondition, and race tests.
+  - 18 tests passed; `cargo fmt --check`, Clippy with warnings denied, and a real temporary loopback HTTP/SIGTERM smoke test passed. See [docs/M1-FINDINGS.md](docs/M1-FINDINGS.md).
 
 ## M2 — MCP vertical slice
 - [ ] Verify supported `rmcp` Streamable HTTP server API.
