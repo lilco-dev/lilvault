@@ -1,6 +1,8 @@
 # Copy to config.toml (ignored by Git) and set an existing disposable vault path.
 [server]
 listen = "127.0.0.1:8737"
+# MCP Host validation defaults to loopback. Add only an approved proxy authority.
+# mcp_allowed_hosts = ["localhost", "127.0.0.1", "::1", "approved.example:443"]
 
 [[vaults]]
 id = "test"

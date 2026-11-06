@@ -2,7 +2,7 @@
 
 ## Current status
 
-**M1 REST slice implemented and verified; M2 MCP is next. Not production-ready.** Real desktop round trips, multi-vault isolation, container recreation, external create/atomic-update detection, and bounded offline failure/recovery are verified. Default Headless `merge` discarded the competing local line in the conflict probe despite reporting success; document this limit and test alternate conflict preservation before real-vault rollout. Both sync processes are running. Live same-process reconnection and boot autostart remain hardening work. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The operator approved public GitHub publication to `lilco-dev/lilvault`; remote transport still requires an operator decision.
+**M1 and the local M2 MCP slice are implemented and verified; remote Hermes acceptance awaits approved transport. Not production-ready.** Real desktop round trips, multi-vault isolation, container recreation, external create/atomic-update detection, and bounded offline failure/recovery are verified. Default Headless `merge` discarded the competing local line in the conflict probe despite reporting success; document this limit and test alternate conflict preservation before real-vault rollout. Both sync processes are running. Live same-process reconnection and boot autostart remain hardening work. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The operator approved public GitHub publication to `lilco-dev/lilvault`; remote transport still requires an operator decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
@@ -37,9 +37,12 @@
   - 18 tests passed; `cargo fmt --check`, Clippy with warnings denied, and a real temporary loopback HTTP/SIGTERM smoke test passed. See [docs/M1-FINDINGS.md](docs/M1-FINDINGS.md).
 
 ## M2 — MCP vertical slice
-- [ ] Verify supported `rmcp` Streamable HTTP server API.
-- [ ] Implement authenticated MCP endpoint.
-- [ ] Implement list_vaults, list_files, read_file, write_file tools.
+- [x] Verify supported `rmcp` Streamable HTTP server API.
+  - Official `rmcp` 3.9 stateless server API and typed client verified; declared Rust minimum raised to 1.88.
+- [x] Implement authenticated MCP endpoint.
+  - Every HTTP request authenticates; no legacy sessions; SDK Host checks and deny-present-Origin policy tested.
+- [x] Implement list_vaults, list_files, read_file, write_file tools.
+  - Shared core, structured errors, and preconditions tested with a real SDK client over HTTP. All 25 tests, fmt, Clippy, and a production binary build passed. See [docs/M2-FINDINGS.md](docs/M2-FINDINGS.md).
 - [ ] Connect Hermes remotely through approved HTTPS/private transport.
 - [ ] Demonstrate Hermes-created note appears in Obsidian.
 

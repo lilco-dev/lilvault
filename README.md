@@ -2,11 +2,11 @@
 
 A self-hosted gateway exposing existing Obsidian Sync vaults to remote AI agents over MCP Streamable HTTP, with a small REST API for diagnostics and automation.
 
-**Status: M0 feasibility passed; the M1 Rust/REST slice is implemented. MCP/Hermes integration and production packaging are next. Use disposable vaults only for now.**
+**Status: M1 REST and the local MCP slice are implemented and tested. Remote Hermes/Obsidian acceptance and production packaging remain. Use disposable vaults only for now.**
 
 ## Progress
 
-M0 verified official Obsidian Headless in Docker on `zoro`: real desktop round trips, two isolated vaults, container recreation, external atomic writes, bounded offline recovery, and observed conflict behavior. M1 adds fail-closed configuration, vault-scoped bearer authentication, Linux descriptor-relative Markdown operations, conditional writes, and a REST API. See [M0 findings](docs/M0-FINDINGS.md) and the [REST contract](docs/API.md).
+M0 verified official Obsidian Headless in Docker on `zoro`: real desktop round trips, two isolated vaults, container recreation, external atomic writes, bounded offline recovery, and observed conflict behavior. M1 adds fail-closed configuration, vault-scoped bearer authentication, Linux descriptor-relative Markdown operations, conditional writes, and a REST API. The local MCP slice adds four authenticated tools through the official Rust SDK's stateless Streamable HTTP transport. See [M0 findings](docs/M0-FINDINGS.md), the [REST contract](docs/API.md), and the [MCP contract](docs/MCP.md).
 
 The intended flow is:
 
@@ -18,9 +18,9 @@ Hermes → authenticated MCP over approved HTTPS/private transport
 
 A successful local write will not imply cloud synchronization. Obsidian credentials must remain isolated from the gateway. M0 also found that Headless's default merge can discard one competing edit while reporting success; see the findings log before using real notes.
 
-## Run the REST slice
+## Run the gateway locally
 
-Requires Linux with `openat2` (kernel 5.6+) and a Rust toolchain. Start with an existing **disposable** local directory, not important notes:
+Requires Linux with `openat2` (kernel 5.6+) and Rust 1.88+. Start with an existing **disposable** local directory, not important notes:
 
 ```sh
 cp config.example.toml config.toml
@@ -52,7 +52,9 @@ cargo test --all-targets
 - [AGENT_PROMPT.md](AGENT_PROMPT.md): kickoff instructions.
 - [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md): Headless research and real sync verification.
 - [docs/API.md](docs/API.md): REST usage, configuration, filesystem guarantees, and limits.
-- [docs/M1-FINDINGS.md](docs/M1-FINDINGS.md): implementation scope and verification evidence.
+- [docs/M1-FINDINGS.md](docs/M1-FINDINGS.md): REST implementation scope and verification evidence.
+- [docs/MCP.md](docs/MCP.md): MCP URL, tools, authentication, Host/Origin policy, and limits.
+- [docs/M2-FINDINGS.md](docs/M2-FINDINGS.md): local SDK-client verification and remote demo prerequisites.
 
 ## Development guardrails
 
@@ -63,4 +65,4 @@ cargo test --all-targets
 - The gateway must never mount the sync credential home or Docker socket.
 - Back up real vaults; gateway locks do not serialize against external Headless writes.
 
-There is no MCP endpoint, Hermes demo, or production Compose gateway deployment yet. The Headless feasibility containers and the Rust API remain separate; local write success does not establish a cloud round trip.
+MCP is available at `/mcp` on the same listener with the same bearer token. Its default Host allowlist is loopback-only and browser Origins are denied. There is no remote Hermes demo or production Compose gateway deployment yet. The Headless feasibility containers and gateway remain separate; local write success does not establish a cloud round trip.

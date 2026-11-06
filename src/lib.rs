@@ -6,6 +6,7 @@ compile_error!("lilvault requires Linux openat2; no insecure path-resolution fal
 pub mod config;
 pub mod error;
 pub mod http;
+mod mcp;
 pub mod service;
 pub mod vault;
 

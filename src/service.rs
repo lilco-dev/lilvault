@@ -37,8 +37,17 @@ pub struct VaultInfo {
 
 pub struct Service {
     pub listen: SocketAddr,
+    pub(crate) mcp_allowed_hosts: Vec<String>,
     vaults: BTreeMap<String, Arc<Vault>>,
     credentials: Vec<Credential>,
+}
+
+pub(crate) async fn work<T: Send + 'static>(
+    job: impl FnOnce() -> Result<T, Error> + Send + 'static,
+) -> Result<T, Error> {
+    tokio::task::spawn_blocking(job)
+        .await
+        .map_err(|_| Error::Unavailable)?
 }
 
 fn identifier(value: &str) -> bool {
@@ -58,6 +67,18 @@ impl Service {
         config: Config,
         secret: impl Fn(&str) -> Option<String>,
     ) -> Result<Self, ConfigError> {
+        if config.server.mcp_allowed_hosts.is_empty()
+            || config.server.mcp_allowed_hosts.iter().any(|host| {
+                host.is_empty()
+                    || host.contains(['*', '/', '@'])
+                    || host.chars().any(char::is_whitespace)
+                    || host.chars().any(char::is_control)
+            })
+        {
+            return Err(ConfigError(
+                "mcp_allowed_hosts must contain explicit hostnames/IP authorities, not wildcard hosts, URLs, or whitespace",
+            ));
+        }
         if config.vaults.is_empty() || config.agents.is_empty() {
             return Err(ConfigError(
                 "at least one enabled vault and one agent are required",
@@ -176,6 +197,7 @@ impl Service {
         }
         Ok(Self {
             listen: config.server.listen,
+            mcp_allowed_hosts: config.server.mcp_allowed_hosts,
             vaults,
             credentials,
         })

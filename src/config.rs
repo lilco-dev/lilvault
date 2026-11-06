@@ -15,6 +15,12 @@ pub struct Config {
 pub struct Server {
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
+    #[serde(default = "default_hosts")]
+    pub mcp_allowed_hosts: Vec<String>,
+}
+
+fn default_hosts() -> Vec<String> {
+    vec!["localhost".into(), "127.0.0.1".into(), "::1".into()]
 }
 
 fn default_listen() -> SocketAddr {
@@ -24,6 +30,7 @@ impl Default for Server {
     fn default() -> Self {
         Self {
             listen: default_listen(),
+            mcp_allowed_hosts: default_hosts(),
         }
     }
 }

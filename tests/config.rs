@@ -31,6 +31,18 @@ fn rejects(label: &str, mutate: impl FnOnce(&mut Config)) {
 
 #[test]
 fn configuration_fails_closed_on_malformed_registry_or_permissions() {
+    rejects("empty MCP host allowlist", |c| {
+        c.server.mcp_allowed_hosts.clear()
+    });
+    rejects("wildcard MCP host", |c| {
+        c.server.mcp_allowed_hosts = vec!["*".into()]
+    });
+    rejects("URL instead of host", |c| {
+        c.server.mcp_allowed_hosts = vec!["https://example.com".into()]
+    });
+    rejects("whitespace in MCP host", |c| {
+        c.server.mcp_allowed_hosts = vec!["bad host".into()]
+    });
     rejects("no vaults", |c| c.vaults.clear());
     rejects("no agents", |c| c.agents.clear());
     rejects("all disabled", |c| c.vaults[0].enabled = false);

@@ -1,6 +1,6 @@
-# M1 REST API and local consistency
+# REST API and local consistency
 
-Linux with `openat2` support is required (kernel 5.6+); unsupported kernels fail closed. This is a local-filesystem API, not a cloud-sync acknowledgment service. MCP, search, deletion, and sync supervision are later milestones.
+Linux with `openat2` support is required (kernel 5.6+); unsupported kernels fail closed. This is a local-filesystem API, not a cloud-sync acknowledgment service. The local [MCP transport](MCP.md) uses this same core; search, deletion, and sync supervision remain later milestones.
 
 ## Configuration
 
@@ -58,7 +58,7 @@ The HTTP deadline is 30 seconds. A timed-out/connection-lost write may still fin
 
 ## Errors
 
-Errors use `{"error":{"code":"...","message":"..."}}`, including extraction, size, not-found, and method errors. Main status codes are 400 invalid input/path, 401 missing/invalid bearer, 403 read-only, 404 unavailable identity/resource, 412 stale/create-existing precondition, 413 size/listing limit, 428 missing precondition, 503 unsafe/unavailable root or I/O failure, and 504 deadline exceeded. Delete/search/status/MCP routes are not implemented in M1. A 409 conflict signal is reserved for later reliable sync/conflict observation; this slice does not claim it can detect every cloud conflict.
+Errors use `{"error":{"code":"...","message":"..."}}`, including extraction, size, not-found, and method errors. Main status codes are 400 invalid input/path, 401 missing/invalid bearer, 403 read-only, 404 unavailable identity/resource, 412 stale/create-existing precondition, 413 size/listing limit, 428 missing precondition, 503 unsafe/unavailable root or I/O failure, and 504 deadline exceeded. Delete/search/status routes remain later milestones; `/mcp` is documented separately in [MCP.md](MCP.md). A 409 conflict signal is reserved for later reliable sync/conflict observation; this slice does not claim it can detect every cloud conflict.
 
 ## Development checks
 

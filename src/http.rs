@@ -1,7 +1,7 @@
 use crate::{
     MAX_FILE_BYTES,
     error::Error,
-    service::{Agent, Service},
+    service::{Agent, Service, work},
     vault::{Condition, valid_revision},
 };
 use axum::{
@@ -31,7 +31,14 @@ pub fn router(service: Arc<Service>) -> Router {
             service.clone(),
             authenticate,
         ));
+    let mcp = Router::new()
+        .route_service("/mcp", crate::mcp::transport(service.clone()))
+        .route_layer(middleware::from_fn_with_state(
+            service.clone(),
+            authenticate,
+        ));
     Router::new()
+        .merge(mcp)
         .route("/healthz", get(|| async { Json(json!({"status":"ok"})) }))
         .route("/readyz", get(ready))
         .nest("/v1", api)
@@ -67,6 +74,8 @@ async fn authenticate(
     let Some(agent) = agent else {
         return Error::Unauthorized.into_response();
     };
+    // The SDK receives HTTP Parts; never forward the bearer into tool context/logs.
+    request.headers_mut().remove(header::AUTHORIZATION);
     request.extensions_mut().insert(agent);
     next.run(request).await
 }
@@ -76,14 +85,6 @@ async fn deadline(request: Request, next: Next) -> Response {
         Ok(response) => response,
         Err(_) => Error::Timeout.into_response(),
     }
-}
-
-async fn work<T: Send + 'static>(
-    job: impl FnOnce() -> Result<T, Error> + Send + 'static,
-) -> Result<T, Error> {
-    tokio::task::spawn_blocking(job)
-        .await
-        .map_err(|_| Error::Unavailable)?
 }
 
 async fn ready(State(service): State<Arc<Service>>) -> Result<Response, Error> {
