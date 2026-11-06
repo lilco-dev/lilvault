@@ -2,7 +2,7 @@
 
 ## Current status
 
-M0 has **verified a real desktop/zoro round trip for remote vault `test`**: the operator saw the uploaded note and the requested desktop reply arrived on zoro. Container recreation also passed without prompts and retained the desktop reply. Second-vault, offline, conflict, and terms checks still gate M1. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). GitHub publication still awaits a repository visibility decision.
+M0 has **verified a real desktop/zoro round trip for remote vault `test`**: the operator saw the uploaded note and the requested desktop reply arrived on zoro. Container recreation also passed without prompts and retained the desktop reply. Offline startup correctly reported a connection failure without a false sync acknowledgment; recreation with normal networking uploaded the queued probe. Second-vault, conflict, and terms checks still gate M1. Live network-drop/automatic reconnection in the same process remains untested. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). GitHub publication still awaits a repository visibility decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
@@ -21,6 +21,7 @@ M0 has **verified a real desktop/zoro round trip for remote vault `test`**: the 
   - Stopped the original container and recreated it with the same persistent mounts; it reached `Fully synced` without prompts and retained the verified desktop reply.
 - [ ] Configure second vault with independent local directory/process.
 - [ ] Test external writes, conflicting edits, and offline behavior; document findings.
+  - Live external create/upload passed. Offline startup failed visibly without `Fully synced`; a new normal-network container uploaded a note queued while sync was stopped. Conflict and live network-drop recovery tests remain.
 - [ ] Record exact package version, commands, storage paths, and M0 go/no-go decision.
 
 ## M1 — Rust filesystem and REST

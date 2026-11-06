@@ -168,6 +168,26 @@ After verifying the desktop reply, the agent stopped only `lilvault-m0-sync` wit
 
 For scripts using `--rm`, do not assume `docker stop` has completed name removal before immediately reusing the name; verify removal or use a distinct replacement name after checking the old process is stopped.
 
+## Bounded offline startup and recovery
+
+Stopped only the test sync container, then ran the same client with no container network:
+
+```sh
+timeout --signal=TERM --kill-after=5s 20s sudo -n docker run --rm \
+  --name lilvault-m0-offline --network none --log-driver=none \
+  --mount type=volume,source=lilvault-m0-auth,target=/home/node \
+  --mount type=bind,source=/home/arch/lilvault/data/vaults/test,target=/vault \
+  lilvault-sync:m0 sync --path /vault
+```
+
+Observed `Connecting...`, a server connection error on stderr, and `Disconnected from server`. There was no `Fully synced` message. The process did not exit on its own within 20 seconds; the intentional timeout terminated it with code `124`. The test wrapper treated that deadline as expected, not as successful synchronization. No host network settings were changed.
+
+Assertions verified the error, deadline, absence of a false sync acknowledgment, no remaining active sync owner, and preservation of the original desktop reply. With sync still stopped, an exclusive create wrote `lilvault-m0-offline.md`. This demonstrated local file availability, not cloud acceptance.
+
+Started a fresh normal-network container named `lilvault-m0-sync-recovery`, with the same mounts and `sync --path /vault --continuous`. It reported a successful connection, `Uploading file lilvault-m0-offline.md`, `Upload complete lilvault-m0-offline.md`, then `Fully synced`, without credential prompts. It remains running under process `lilvault-m0-offline-recovery-sync`.
+
+**Scope:** offline startup failure and recovery by container recreation are verified. A live connection loss and automatic reconnection in the same process are not tested. Process liveness alone cannot establish cloud readiness. The recovery probe's desktop visibility has not been independently confirmed; upload completion is the client's reported acknowledgment.
+
 ## Operator input required
 
 1. The first desktop/zoro round trip is confirmed. Arrange a second disposable remote vault for the remaining multi-vault test; do not send account or encryption passwords in chat.
@@ -183,7 +203,7 @@ For scripts using `--rm`, do not assume `docker stop` has completed name removal
 4. Account/config storage paths were observed using filesystem metadata only. Keep the credential home separate from vault data and inaccessible to the future gateway.
 5. E2EE setup is complete; unattended saved authentication/decryption worked in both one-shot and continuous fresh containers.
 6. Initial sync, local-to-Obsidian visibility, Obsidian-to-local edits, and saved authentication/sync after container recreation are verified.
-7. Verify independent second-vault sync, external writes, conflicts, and offline recovery.
+7. External create/upload and bounded offline startup/recreation recovery are verified. Test independent second-vault sync, conflicts, other external mutations, and live network-drop recovery.
 8. Record exact commands, versions, paths, and observed outcomes. Only mark M0 passed after all required real tests succeed.
 
 ## Verification so far
@@ -199,6 +219,7 @@ For scripts using `--rm`, do not assume `docker stop` has completed name removal
 - Fresh-container continuous sync startup: **passed**, `Fully synced`. Live external test-note detection/upload and human desktop visibility: **passed**.
 - Desktop-to-zoro return edit: **passed**; exact expected reply found in the local note.
 - Container recreation: **passed**; replacement reached `Fully synced` without prompts and retained the verified desktop reply. A same-name auto-removal race was handled by confirming the old container was gone and using a replacement name.
+- Offline startup: **passed within tested scope**; connection error, no `Fully synced`, bounded termination at 20 seconds. Normal-network recreation: **passed**, queued probe uploaded and `Fully synced` reported. Live same-process disconnection/reconnection remains untested.
 - Secret/data ignore checks: **passed** (10 ignored paths and 7 publishable exceptions); initial Markdown diagnostics and whitespace checks passed.
 - No Rust code exists; Cargo checks are not applicable yet.
 - A real Obsidian desktop/zoro round trip is demonstrated. No Rust gateway, Hermes operation, or MCP round trip has been implemented or demonstrated.
