@@ -2,7 +2,7 @@
 
 ## Decision
 
-**BLOCKED on Docker bridge networking / not validated.** Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. No host packages, networking settings, or existing services have been changed. Sync authentication and round-trip tests remain outstanding.
+**Awaiting interactive login and disposable vault selection / M0 not passed.** Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. The operator rebooted the host, resolving the kernel/module mismatch. Normal bridge-network image build and offline CLI checks now pass. No host packages or networking settings were changed by the agent. Sync authentication and round-trip tests remain outstanding.
 
 ## Initial investigation — 2026-11-06
 
@@ -48,8 +48,8 @@ npm view obsidian-headless version engines license dist.integrity --json
 
 Observed metadata:
 
-- Package version: `0.0.14` (candidate for the M0 pin, not yet installed/tested).
-- Node.js requirement: `>=22.0.0`. Official Node release metadata (`https://nodejs.org/dist/index.json`) lists `v26.13.0` as the latest LTS (Lithium), released 2026-10-28. Candidate image: `node:26.13.0-bookworm-slim`; availability and CLI compatibility must be verified by building.
+- Package version: `0.0.14`; installed in the M0 image and verified using `ob --version` after reboot.
+- Node.js requirement: `>=22.0.0`. Official Node release metadata (`https://nodejs.org/dist/index.json`) lists `v26.13.0` as the latest LTS (Lithium), released 2026-10-28. Image: `node:26.13.0-bookworm-slim`; image build and offline Headless CLI checks passed after reboot.
 - Package license metadata: `UNLICENSED`. Do not treat the client as open-source or infer redistribution permission from public availability. Confirm applicable Headless/service terms before publishing an image containing it.
 - Obsidian Sync subscription is required.
 
@@ -67,7 +67,7 @@ ob sync --continuous
 
 Use interactive prompts for account and encryption credentials, not command-line password arguments or captured logs. Check the installed pinned client's help before automating any command.
 
-The documentation describes continuous filesystem watching, but its actual behavior, persistence paths, conflict semantics, and unattended restart remain unverified. No credential path or environment-variable authentication mechanism is assumed.
+The documentation describes continuous filesystem watching, but its actual behavior, exact credential paths, conflict semantics, and unattended authenticated restart remain unverified. No environment-variable authentication mechanism is assumed. The full `/home/node` directory is persisted in a dedicated sync-only volume until actual credential storage is verified.
 
 ## Docker build attempt
 
@@ -84,19 +84,52 @@ sudo -n docker build --file deploy/Dockerfile.sync --tag lilvault-sync:m0 .
 
 A planned reboot into the installed kernel may restore module availability, but requires operator approval and consideration of other services. An explicitly approved host-network build could bypass bridge creation for this test, but would not fix normal bridge-network Compose deployment. Neither workaround has been attempted.
 
+## Post-reboot verification — 2026-11-06
+
+The operator rebooted zoro. Running kernel is now `7.2.14-arch1-1`, its module tree exists, and the Docker daemon reports `29.9.3`. The same build passed without a host-network workaround:
+
+```sh
+sudo -n docker build --file deploy/Dockerfile.sync --tag lilvault-sync:m0 .
+sudo -n docker run --rm --network none lilvault-sync:m0 --version
+sudo -n docker run --rm --network none lilvault-sync:m0 --help
+sudo -n docker run --rm --network none lilvault-sync:m0 sync-setup --help
+sudo -n docker run --rm --network none lilvault-sync:m0 sync --help
+sudo -n docker run --rm --network none lilvault-sync:m0 login --help
+sudo -n docker run --rm --network none lilvault-sync:m0 sync-status --help
+```
+
+Observed:
+
+- Image: `lilvault-sync:m0`, ID `sha256:bd9f1e19db43cdc0cd8d3af156fbbf30888b10083657d1b615fe2680e2136158`.
+- Headless version: `0.0.14`; image user: `node`, working directory: `/home/node`.
+- `sync-setup` supports `--vault`, `--path`, and an interactive encryption-password prompt when the password argument is omitted.
+- `sync` supports `--path` and `--continuous`; `sync-status` exists. Its actual health semantics are not yet tested.
+- Created dedicated Docker volume `lilvault-m0-auth`, mounted at `/home/node`; offline runtime check confirmed UID/GID `1000:1000`, `HOME=/home/node`, and write access. No credentials have been entered. Never mount this home volume into the gateway.
+
+### Next operator action: interactive login
+
+Run in a normal terminal on zoro, not through an agent tool or recorded session:
+
+```sh
+sudo docker run --rm -it --log-driver=none \
+  --mount type=volume,source=lilvault-m0-auth,target=/home/node \
+  lilvault-sync:m0 login
+```
+
+Enter account credentials/2FA through the official prompts. Do not paste passwords, authentication tokens, encryption passwords, or credential-file contents into chat. The container is removed after login; the dedicated home volume remains. This persists the whole home directory conservatively; actual credential paths and successful reuse in a new container still require verification. No remote vault is selected or synchronized by this login command.
+
 ## Operator input required
 
-1. Choose how to address the Docker networking blocker: an operator-planned kernel reboot/repair, or explicit approval to try host networking for the isolated image build only. No reboot or host-network workaround is authorized yet.
-2. Select disposable Sync vaults and arrange interactive authentication; no SSH fix is required. Do not send private keys or account passwords in chat.
-3. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
-4. A second disposable vault is required for M0 multi-vault acceptance.
-5. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
+1. Complete interactive login and select the first disposable Sync vault. Do not send private keys or account passwords in chat.
+2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
+3. A second disposable vault is required for M0 multi-vault acceptance.
+4. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
 
 ## Planned next steps
 
 1. Local read-only host inspection is complete; use existing `sudo -n docker` access for isolated lilvault containers.
 2. Report findings and request approval for any missing host-level prerequisites. Keep all work isolated from existing vaults/services.
-3. Select exact Node and Headless versions; build a non-root sync-only Docker image. Verify installed `ob --help` and supported subcommands.
+3. Exact Node/Headless image build and supported CLI help checks are complete. Next, configure separate vault storage after operator selection.
 4. Identify actual account/config storage through supported CLI behavior. Persist credentials separately from vault data; keep gateway access to credentials impossible.
 5. Have the operator authenticate interactively and connect the approved disposable vault.
 6. Verify initial pull, local-to-Obsidian edits, Obsidian-to-local edits, and authentication/sync after container restart.
@@ -109,7 +142,8 @@ A planned reboot into the installed kernel may restore module availability, but 
 - Official documentation and npm metadata inspected.
 - Direct zoro host inspection: **passed**. An unnecessary SSH attempt failed but does not block local work.
 - Existing passwordless sudo Docker access: **passed**; no permission changes made.
-- Pinned Node image pull: **passed**. Sync image build: **failed at Docker bridge setup**; Headless CLI checks did not run.
+- Initial sync image build failed at Docker bridge setup. After operator reboot: **build passed**, Headless version/help checks passed, dedicated persistent home is writable as non-root.
+- Interactive login, credential reuse, vault setup, and actual synchronization: **not yet tested**.
 - Secret/data ignore checks: **passed** (10 ignored paths and 7 publishable exceptions); initial Markdown diagnostics and whitespace checks passed.
 - No Rust code exists; Cargo checks are not applicable yet.
 - No real Obsidian, Hermes, or MCP round trip has been demonstrated.

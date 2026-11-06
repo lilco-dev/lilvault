@@ -2,12 +2,13 @@
 
 ## Current status
 
-M0 is **blocked on Docker bridge networking locally on zoro**; SSH is unnecessary. The pinned Node image pulled, but Docker could not create a `veth` interface; the running kernel and installed module tree differ. No reboot, module installation, or networking workaround has been attempted. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md) for evidence and approval options. No sync acceptance tests have run. Disposable Sync vault selection, interactive authentication, and a GitHub repository visibility decision are still required.
+M0 is **awaiting interactive Obsidian login and disposable vault selection**. The operator rebooted zoro; the running kernel now matches its modules and the normal Docker build passed. The non-root image reports Headless `0.0.14`; CLI help and a persistent home volume are verified. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md) for commands and evidence. No sync acceptance tests have run. GitHub publication still awaits a repository visibility decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
 - [ ] Confirm current official Obsidian Headless installation requirements and terms.
 - [ ] Build pinned Node/Headless Docker image with persistent credential and vault volumes.
+  - Image build, non-root runtime, and persistent credential-home volume verified; separate vault storage remains to be configured.
 - [ ] Authenticate interactively using supported CLI commands.
 - [ ] Configure a disposable Obsidian Sync vault and verify initial pull.
 - [ ] Edit file locally and verify it appears in Obsidian.
