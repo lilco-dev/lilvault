@@ -190,7 +190,7 @@ Started a fresh normal-network container named `lilvault-m0-sync-recovery`, with
 
 ## Operator input required
 
-1. Both disposable vaults are configured. Check `lilvault-m0-isolation.md` in desktop Obsidian: `test` must show `Vault marker: test`, while `test2` must show `Vault marker: test2`. In `test2` only, change the last line to `Obsidian reply: hello from test2` and let desktop Sync finish. Do not send account or encryption passwords in chat.
+1. Both disposable vaults and desktop isolation checks are verified. For the conflict test, `test` sync is paused. In desktop `test`, open `lilvault-m0-conflict.md`, change `Shared line: baseline` to `Shared line: desktop version`, and let desktop Sync finish. The local zoro version already differs. Confirm completion before the agent reconnects. Do not send account or encryption passwords in chat.
 2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
 3. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
 
@@ -221,7 +221,21 @@ sudo -n docker run --rm --name lilvault-m0-sync-test2 --log-driver=none \
 
 It identified remote vault `test2`, connected successfully, and reported `Fully synced` without prompts. Both vaults therefore have independent working trees/processes while sharing only the sync credential home; the future gateway must not mount that home.
 
-After both were running, exclusive creates wrote `lilvault-m0-isolation.md` in each local vault. Each has a different exact `Vault marker:` line matching its own vault, plus `Obsidian reply: pending`. Local distinct-content assertions passed. Both independent processes then logged `Upload complete lilvault-m0-isolation.md`. Container inspection confirmed each is running with only its expected vault bind mount and distinct container path; the first vault's original roundtrip note was preserved. Human desktop isolation and a second-vault return edit remain pending before claiming full remote isolation.
+After both were running, exclusive creates wrote `lilvault-m0-isolation.md` in each local vault. Each has a different exact `Vault marker:` line matching its own vault, plus `Obsidian reply: pending`. Local distinct-content assertions passed. Both independent processes then logged `Upload complete lilvault-m0-isolation.md`. Container inspection confirmed each is running with only its expected vault bind mount and distinct container path; the first vault's original roundtrip note was preserved. The operator confirmed the requested desktop checks/edit. Local assertions then verified exact markers in both vaults, `Obsidian reply: hello from test2` only in `test2`, and the original `Obsidian reply: pending` unchanged in `test`. The first vault's original roundtrip reply also remained intact. Both containers were still running with their own expected mounts. This confirms isolation for the tested desktop and Headless file operations; gateway ACLs are not implemented or validated.
+
+## Controlled conflict probe (staged, outcome pending)
+
+Exclusive creation added `lilvault-m0-conflict.md` to `test` with exactly:
+
+```markdown
+# lilvault conflict probe
+
+Shared line: baseline
+```
+
+The running client logged `Upload complete lilvault-m0-conflict.md`. The agent then stopped only `lilvault-m0-sync-recovery` with `docker stop --timeout 15`; its process exited successfully. Container inspection confirmed no running sync owner for `test`, while `test2` still had exactly one. A targeted edit changed only the probe's local last line to `Shared line: zoro version`.
+
+The operator is asked to change the same line in desktop Obsidian to `Shared line: desktop version` and let desktop Sync complete while zoro's first-vault sync remains paused. This stages divergent changes against a shared uploaded baseline. Only this disposable probe is intentionally conflicted; existing notes are untouched. Do not reconnect before the desktop edit is confirmed. The default Headless conflict strategy remains `merge`; actual outcome and observable conflict signals are not yet known.
 
 ## Planned next steps
 
@@ -231,7 +245,7 @@ After both were running, exclusive creates wrote `lilvault-m0-isolation.md` in e
 4. Account/config storage paths were observed using filesystem metadata only. Keep the credential home separate from vault data and inaccessible to the future gateway.
 5. E2EE setup is complete; unattended saved authentication/decryption worked in both one-shot and continuous fresh containers.
 6. Initial sync, local-to-Obsidian visibility, Obsidian-to-local edits, and saved authentication/sync after container recreation are verified.
-7. External create/upload, bounded offline startup/recreation recovery, and independent second-vault startup are verified. Complete desktop multi-vault isolation/return-edit checks, conflicts, other external mutations, and live network-drop recovery.
+7. External create/upload, bounded offline startup/recreation recovery, and independent second-vault startup are verified. Desktop multi-vault isolation/return-edit checks passed. Complete conflicts, other external mutations, and live network-drop recovery.
 8. Record exact commands, versions, paths, and observed outcomes. Only mark M0 passed after all required real tests succeed.
 
 ## Verification so far

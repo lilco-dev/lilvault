@@ -2,7 +2,7 @@
 
 ## Current status
 
-M0 has **verified a real desktop/zoro round trip for remote vault `test`**: the operator saw the uploaded note and the requested desktop reply arrived on zoro. Container recreation also passed without prompts and retained the desktop reply. Offline startup correctly reported a connection failure without a false sync acknowledgment; recreation with normal networking uploaded the queued probe. Both vaults now have independent live sync processes; desktop multi-vault isolation, conflict, and terms checks still gate M1. Live network-drop/automatic reconnection in the same process remains untested. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). GitHub publication still awaits a repository visibility decision.
+M0 has **verified a real desktop/zoro round trip for remote vault `test`**: the operator saw the uploaded note and the requested desktop reply arrived on zoro. Container recreation also passed without prompts and retained the desktop reply. Offline startup correctly reported a connection failure without a false sync acknowledgment; recreation with normal networking uploaded the queued probe. Desktop multi-vault isolation passed with a reply arriving only in `test2`. For the disposable conflict test, `test` sync is now paused with a local-only probe edit; `test2` remains running. Conflict and terms checks still gate M1. Live network-drop/automatic reconnection in the same process remains untested. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). GitHub publication still awaits a repository visibility decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
@@ -20,9 +20,9 @@ M0 has **verified a real desktop/zoro round trip for remote vault `test`**: the 
 - [x] Restart container; verify credentials and sync resume.
   - Stopped the original container and recreated it with the same persistent mounts; it reached `Fully synced` without prompts and retained the verified desktop reply.
 - [x] Configure second vault with independent local directory/process.
-  - `test2` setup succeeded after an initial HTTP 504. Both distinct registrations and concurrent sync processes are verified; second process reached `Fully synced` without prompts. Same-named marker notes with distinct contents uploaded successfully through both processes; separate running mounts verified. Desktop isolation and second-vault return edit pending.
+  - `test2` setup succeeded after an initial HTTP 504. Both distinct registrations and concurrent sync processes are verified; second process reached `Fully synced` without prompts. Same-named marker notes with distinct contents uploaded successfully through both processes; separate running mounts verified. Desktop isolation and second-vault return edit passed: the expected reply arrived only in `test2`, while `test` retained its marker and unchanged reply.
 - [ ] Test external writes, conflicting edits, and offline behavior; document findings.
-  - Live external create/upload passed. Offline startup failed visibly without `Fully synced`; a new normal-network container uploaded a note queued while sync was stopped. Conflict and live network-drop recovery tests remain.
+  - Live external create/upload passed. Offline startup failed visibly without `Fully synced`; a new normal-network container uploaded a note queued while sync was stopped. Conflict probe baseline uploaded, first-vault sync paused, and local line changed; awaiting a divergent desktop edit before reconnecting. Live network-drop recovery remains untested.
 - [ ] Record exact package version, commands, storage paths, and M0 go/no-go decision.
 
 ## M1 — Rust filesystem and REST
