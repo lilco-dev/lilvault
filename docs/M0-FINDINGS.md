@@ -190,7 +190,7 @@ Started a fresh normal-network container named `lilvault-m0-sync-recovery`, with
 
 ## Operator input required
 
-1. The operator approved remote vault `test2`; a fresh `sync-list-remote --json` lookup found exactly one match. Complete its interactive setup below; do not send account or encryption passwords in chat.
+1. Both disposable vaults are configured. Check `lilvault-m0-isolation.md` in desktop Obsidian: `test` must show `Vault marker: test`, while `test2` must show `Vault marker: test2`. In `test2` only, change the last line to `Obsidian reply: hello from test2` and let desktop Sync finish. Do not send account or encryption passwords in chat.
 2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
 3. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
 
@@ -208,7 +208,20 @@ sudo docker run --rm -it --log-driver=none \
   --vault test2 --path /vaults/test2 --device-name lilvault-zoro-m0-test2
 ```
 
-Second-vault setup completion, saved-key reuse, concurrent independent processes, and isolation remain unverified. The first vault's continuous-sync process is not stopped or reconfigured by this setup command.
+The first setup request reported HTTP `504` while fetching vault info. The operator subsequently reported successful configuration for `test2`. Read-only `sync-list-local --json` checks found exactly one registration at `/vault` and one at `/vaults/test2`; no config/credential contents were read. The first vault's continuous-sync process remained running and was not reconfigured.
+
+Started an independent second process using:
+
+```sh
+sudo -n docker run --rm --name lilvault-m0-sync-test2 --log-driver=none \
+  --mount type=volume,source=lilvault-m0-auth,target=/home/node \
+  --mount type=bind,source=/home/arch/lilvault/data/vaults/test2,target=/vaults/test2 \
+  lilvault-sync:m0 sync --path /vaults/test2 --continuous
+```
+
+It identified remote vault `test2`, connected successfully, and reported `Fully synced` without prompts. Both vaults therefore have independent working trees/processes while sharing only the sync credential home; the future gateway must not mount that home.
+
+After both were running, exclusive creates wrote `lilvault-m0-isolation.md` in each local vault. Each has a different exact `Vault marker:` line matching its own vault, plus `Obsidian reply: pending`. Local distinct-content assertions passed. Both independent processes then logged `Upload complete lilvault-m0-isolation.md`. Container inspection confirmed each is running with only its expected vault bind mount and distinct container path; the first vault's original roundtrip note was preserved. Human desktop isolation and a second-vault return edit remain pending before claiming full remote isolation.
 
 ## Planned next steps
 
@@ -218,7 +231,7 @@ Second-vault setup completion, saved-key reuse, concurrent independent processes
 4. Account/config storage paths were observed using filesystem metadata only. Keep the credential home separate from vault data and inaccessible to the future gateway.
 5. E2EE setup is complete; unattended saved authentication/decryption worked in both one-shot and continuous fresh containers.
 6. Initial sync, local-to-Obsidian visibility, Obsidian-to-local edits, and saved authentication/sync after container recreation are verified.
-7. External create/upload and bounded offline startup/recreation recovery are verified. Test independent second-vault sync, conflicts, other external mutations, and live network-drop recovery.
+7. External create/upload, bounded offline startup/recreation recovery, and independent second-vault startup are verified. Complete desktop multi-vault isolation/return-edit checks, conflicts, other external mutations, and live network-drop recovery.
 8. Record exact commands, versions, paths, and observed outcomes. Only mark M0 passed after all required real tests succeed.
 
 ## Verification so far
