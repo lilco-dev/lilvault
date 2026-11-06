@@ -190,10 +190,25 @@ Started a fresh normal-network container named `lilvault-m0-sync-recovery`, with
 
 ## Operator input required
 
-1. The first desktop/zoro round trip is confirmed. Arrange a second disposable remote vault for the remaining multi-vault test; do not send account or encryption passwords in chat.
+1. The operator approved remote vault `test2`; a fresh `sync-list-remote --json` lookup found exactly one match. Complete its interactive setup below; do not send account or encryption passwords in chat.
 2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
-3. A second disposable vault is required for M0 multi-vault acceptance.
-4. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
+3. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
+
+### Second vault preparation and setup
+
+Created new local directory `/home/arch/lilvault/data/vaults/test2`, mode `0700`, UID/GID `1000:1000`, refusing existing paths. Offline checks confirmed an empty, writable non-root mount. The supported `sync-list-local --json` command reported the first vault registered at `/vault`. Because the processes share a credential home, the second vault will use a distinct in-container path `/vaults/test2` rather than reusing `/vault`; this avoids ambiguous local-path registrations. Account/config contents were not read.
+
+Run in a normal terminal and enter any encryption password only at the prompt:
+
+```sh
+sudo docker run --rm -it --log-driver=none \
+  --mount type=volume,source=lilvault-m0-auth,target=/home/node \
+  --mount type=bind,source=/home/arch/lilvault/data/vaults/test2,target=/vaults/test2 \
+  lilvault-sync:m0 sync-setup \
+  --vault test2 --path /vaults/test2 --device-name lilvault-zoro-m0-test2
+```
+
+Second-vault setup completion, saved-key reuse, concurrent independent processes, and isolation remain unverified. The first vault's continuous-sync process is not stopped or reconfigured by this setup command.
 
 ## Planned next steps
 

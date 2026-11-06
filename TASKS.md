@@ -20,6 +20,7 @@ M0 has **verified a real desktop/zoro round trip for remote vault `test`**: the 
 - [x] Restart container; verify credentials and sync resume.
   - Stopped the original container and recreated it with the same persistent mounts; it reached `Fully synced` without prompts and retained the verified desktop reply.
 - [ ] Configure second vault with independent local directory/process.
+  - Approved remote `test2` found; new empty `/home/arch/lilvault/data/vaults/test2` prepared. Use distinct container path `/vaults/test2` (first vault is registered at `/vault`). Interactive setup and concurrent sync tests pending.
 - [ ] Test external writes, conflicting edits, and offline behavior; document findings.
   - Live external create/upload passed. Offline startup failed visibly without `Fully synced`; a new normal-network container uploaded a note queued while sync was stopped. Conflict and live network-drop recovery tests remain.
 - [ ] Record exact package version, commands, storage paths, and M0 go/no-go decision.
