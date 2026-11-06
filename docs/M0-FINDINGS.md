@@ -11,7 +11,7 @@
 - The local repository started on `main` with no commits and no remote.
 - The supplied `SPEC.md`, `TASKS.md`, and `AGENT_PROMPT.md` were read in full.
 - GitHub CLI is authenticated, but `gh repo view lilco-dev/lilvault --json nameWithOwner,visibility,url` could not resolve the repository. This does not distinguish a nonexistent repository from one the current account cannot access.
-- Confirm repository visibility before creating or publishing `lilco-dev/lilvault`.
+- The operator approved **public** publication to `lilco-dev/lilvault`. Prepublication checks found only expected documentation/build metadata across Git history, with no vault data or credentials detected by the baseline pattern scan; no dedicated secret-scanner binary is installed.
 
 ### Direct zoro host inspection
 
@@ -191,7 +191,7 @@ Started a fresh normal-network container named `lilvault-m0-sync-recovery`, with
 ## Operator input required
 
 1. All staged desktop sync/conflict checks are complete. No further manual note edits are currently required. Do not send account or encryption passwords in chat.
-2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
+2. Public GitHub publication to `lilco-dev/lilvault` is approved; no repository visibility decision remains. This does not authorize public MCP exposure.
 3. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
 
 ### Second vault preparation and setup

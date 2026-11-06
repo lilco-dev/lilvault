@@ -2,7 +2,7 @@
 
 ## Current status
 
-**M0 GO for M1/M2 development against disposable vaults; not production-ready.** Real desktop round trips, multi-vault isolation, container recreation, external create/atomic-update detection, and bounded offline failure/recovery are verified. Default Headless `merge` discarded the competing local line in the conflict probe despite reporting success; document this limit and test alternate conflict preservation before real-vault rollout. Both sync processes are running. Live same-process reconnection and boot autostart remain hardening work. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). GitHub visibility and remote transport still require operator decisions.
+**M0 GO for M1/M2 development against disposable vaults; not production-ready.** Real desktop round trips, multi-vault isolation, container recreation, external create/atomic-update detection, and bounded offline failure/recovery are verified. Default Headless `merge` discarded the competing local line in the conflict probe despite reporting success; document this limit and test alternate conflict preservation before real-vault rollout. Both sync processes are running. Live same-process reconnection and boot autostart remain hardening work. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The operator approved public GitHub publication to `lilco-dev/lilvault`; remote transport still requires an operator decision.
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
