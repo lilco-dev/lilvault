@@ -55,6 +55,7 @@ cargo test --all-targets
 - [docs/M1-FINDINGS.md](docs/M1-FINDINGS.md): REST implementation scope and verification evidence.
 - [docs/MCP.md](docs/MCP.md): MCP URL, tools, authentication, Host/Origin policy, and limits.
 - [docs/M2-FINDINGS.md](docs/M2-FINDINGS.md): local SDK-client verification and remote demo prerequisites.
+- [docs/TAILNET.md](docs/TAILNET.md): approved private HTTPS route, credential handling, and pending Hermes setup.
 
 ## Development guardrails
 

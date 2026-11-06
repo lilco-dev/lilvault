@@ -7,7 +7,7 @@
 - Four tools: `list_vaults`, `list_files`, `read_file`, `write_file`, all calling the same ACL/path-safe service as REST.
 - Fresh bearer authentication on every request. Only the trusted agent extension is passed into the SDK; the Authorization header is removed. No raw bearer is retained in tool context.
 - SDK-supported stateless transport with no legacy session IDs or session/event state shared across credentials. JSON responses are preferred; session resumption is not offered.
-- SDK Host validation with explicit configurable authorities; all browser Origins denied. No public listener/proxy or remote client was configured.
+- SDK Host validation with explicit configurable authorities; all browser Origins denied. An operator-approved private HTTPS Serve route is now configured and locally verified; no public MCP Funnel or remote Hermes client was configured.
 - Consistent structured core errors, required create/revision conditions, 2 MiB note limit, separate escaped JSON envelope limit, and the common request deadline.
 
 See [MCP.md](MCP.md) for the client-facing contract and [API.md](API.md) for shared file/consistency guarantees.
@@ -39,6 +39,8 @@ The SDK API was checked against installed official source/docs, not copied from 
 
 **M2 is not complete:** no remote Hermes MCP operation or Hermes-created note's real Obsidian Sync round trip has occurred. The SDK client's temporary-vault test is not a substitute for that acceptance criterion.
 
-Need the Hermes host/location, whether it shares zoro's Tailnet, and the approved HTTPS/private transport/Host authority. Do not assume the existing Tailscale Funnel route is available for reuse. Obtain approval before changing its configuration, another service, or host networking. Provision a dedicated random vault-scoped agent token locally; do not paste it into chat or Git.
+The operator identified the remote Hermes Tailnet machine and approved separate private HTTPS on port 9443. The route and loopback gateway are now live; normal-TLS authentication and the `test:read-write` scope were verified from zoro. Original port-443 Funnel entries were compared and preserved, with no new public Funnel. A dedicated random token and runtime files were provisioned outside Git with private permissions. See [TAILNET.md](TAILNET.md).
 
-No persistent gateway process was left running. The gateway has no Obsidian authentication volume or Docker socket. The M0 sync processes remain separate. Default Headless merge, external-writer CAS limits, unknown cloud freshness, and timeout uncertainty still apply. Delete/search/supervision and broader conflict/offline hardening remain M3; production Compose/backup/release work remains M4.
+The first strict read-only SSH attempt to the remote machine on port 22 timed out, and Tailnet status subsequently reported it offline. Remote profile/version inspection, Hermes configuration, secure credential transfer, and actual client access remain blocked; no remote configuration or service changes were made. Need the machine online and the correct approved SSH user/port, or an operator-applied configuration path. Do not paste token values into chat or Git.
+
+A private loopback gateway now runs under the session process manager using a binary snapshot; it is not yet boot-supervised. The gateway has no Obsidian authentication volume or Docker socket. The M0 sync processes remain separate. Default Headless merge, external-writer CAS limits, unknown cloud freshness, and timeout uncertainty still apply. Delete/search/supervision and broader conflict/offline hardening remain M3; production Compose/backup/release work remains M4.
