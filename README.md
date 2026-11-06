@@ -2,7 +2,7 @@
 
 A self-hosted gateway exposing existing Obsidian Sync vaults to remote AI agents over MCP Streamable HTTP, with a small REST API for diagnostics and automation.
 
-**Status: M0 feasibility investigation; no gateway or deployment is implemented yet.**
+**Status: M0 feasibility gate passed for disposable-vault development; the Rust gateway and production deployment are not implemented yet.**
 
 ## First milestone
 
@@ -16,7 +16,7 @@ Hermes → authenticated MCP over approved HTTPS/private transport
        → Obsidian Sync → Obsidian client
 ```
 
-A successful local write will not imply cloud synchronization. Obsidian credentials must remain isolated from the gateway.
+A successful local write will not imply cloud synchronization. Obsidian credentials must remain isolated from the gateway. M0 also found that Headless's default merge can discard one competing edit while reporting success; see the findings log before using real notes.
 
 ## Project documents
 

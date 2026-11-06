@@ -2,7 +2,7 @@
 
 ## Decision
 
-**Real desktop/zoro round trip verified for remote vault `test` / M0 not passed.** Unattended sync passed after E2EE setup; the operator's requested desktop edit arrived locally. Container recreation also passed without prompts and retained the note; remaining M0 tests still gate M1. Do not start M1 or M2. Work is running directly on zoro; SSH is unnecessary. The operator rebooted the host, resolving the kernel/module mismatch. Normal bridge-network image build and offline CLI checks now pass. No host packages or networking settings were changed by the agent. Sync authentication and round-trip tests remain outstanding.
+**M0 GO for M1/M2 development against the disposable vaults; not a production release.** Official Headless `0.0.14` on Node `26.13.0` demonstrated real bidirectional desktop sync, independent vaults, saved authentication/encryption setup across container recreation, external creates/atomic replacements, and bounded offline failure/recreation recovery. The controlled conflict test completed and exposed a significant limit: default `merge` kept the desktop line but did not retain the competing zoro line, despite logging a successful merge. The gateway must not promise lossless conflict resolution or atomic CAS against Sync. Keep real vaults backed up and do not treat this feasibility decision as a production safety guarantee. Live network-drop recovery in one process, alternate conflict-copy behavior, host-reboot autostart, and wider failure cases remain hardening work. No host packages or networking settings were changed by the agent; the operator performed the earlier kernel reboot.
 
 ## Initial investigation — 2026-11-06
 
@@ -190,7 +190,7 @@ Started a fresh normal-network container named `lilvault-m0-sync-recovery`, with
 
 ## Operator input required
 
-1. Both disposable vaults and desktop isolation checks are verified. For the conflict test, `test` sync is paused. In desktop `test`, open `lilvault-m0-conflict.md`, change `Shared line: baseline` to `Shared line: desktop version`, and let desktop Sync finish. The local zoro version already differs. Confirm completion before the agent reconnects. Do not send account or encryption passwords in chat.
+1. All staged desktop sync/conflict checks are complete. No further manual note edits are currently required. Do not send account or encryption passwords in chat.
 2. Choose private or public visibility for the GitHub repository, and confirm access if it already exists.
 3. Choose remote MCP transport later, after existing networking is inspected; no public endpoint is needed to begin sync feasibility tests.
 
@@ -223,7 +223,7 @@ It identified remote vault `test2`, connected successfully, and reported `Fully 
 
 After both were running, exclusive creates wrote `lilvault-m0-isolation.md` in each local vault. Each has a different exact `Vault marker:` line matching its own vault, plus `Obsidian reply: pending`. Local distinct-content assertions passed. Both independent processes then logged `Upload complete lilvault-m0-isolation.md`. Container inspection confirmed each is running with only its expected vault bind mount and distinct container path; the first vault's original roundtrip note was preserved. The operator confirmed the requested desktop checks/edit. Local assertions then verified exact markers in both vaults, `Obsidian reply: hello from test2` only in `test2`, and the original `Obsidian reply: pending` unchanged in `test`. The first vault's original roundtrip reply also remained intact. Both containers were still running with their own expected mounts. This confirms isolation for the tested desktop and Headless file operations; gateway ACLs are not implemented or validated.
 
-## Controlled conflict probe (staged, outcome pending)
+## Controlled conflict probe (completed)
 
 Exclusive creation added `lilvault-m0-conflict.md` to `test` with exactly:
 
@@ -235,7 +235,57 @@ Shared line: baseline
 
 The running client logged `Upload complete lilvault-m0-conflict.md`. The agent then stopped only `lilvault-m0-sync-recovery` with `docker stop --timeout 15`; its process exited successfully. Container inspection confirmed no running sync owner for `test`, while `test2` still had exactly one. A targeted edit changed only the probe's local last line to `Shared line: zoro version`.
 
-The operator is asked to change the same line in desktop Obsidian to `Shared line: desktop version` and let desktop Sync complete while zoro's first-vault sync remains paused. This stages divergent changes against a shared uploaded baseline. Only this disposable probe is intentionally conflicted; existing notes are untouched. Do not reconnect before the desktop edit is confirmed. The default Headless conflict strategy remains `merge`; actual outcome and observable conflict signals are not yet known.
+The operator changed the same line in desktop Obsidian to `Shared line: desktop version` and confirmed desktop Sync completion while zoro's first-vault sync was paused. Only this disposable probe was intentionally conflicted. After verifying the divergent local version was still present and no first-vault process was running, the agent started `lilvault-m0-sync-conflict` with the original first-vault mounts and `sync --path /vault --continuous`.
+
+The client logged:
+
+```text
+Push: lilvault-m0-conflict.md (updated)
+Checking lilvault-m0-conflict.md
+Merging conflicted file lilvault-m0-conflict.md
+Merge successful lilvault-m0-conflict.md
+Accepted lilvault-m0-conflict.md
+Fully synced
+```
+
+The resulting local note was:
+
+```markdown
+# lilvault conflict probe
+Shared line: desktop version
+```
+
+The local competing `Shared line: zoro version` was not retained, and no similarly named conflict-copy file appeared. These are observations of one probe under default `merge`, not a general rule for all merges. The second vault's reply remained intact and both containers remained running. Successful merge/sync acknowledgment must never be described as preserving every competing edit.
+
+Installed `sync-config --help` advertises `--conflict-strategy` choices `merge` and `conflict`. The alternate strategy has not been enabled or tested; verify its behavior before making conflict-preservation claims for real vaults.
+
+## Live atomic replacement and status observability
+
+With the first vault running again, the agent updated only the existing disposable `lilvault-m0-offline.md` using a same-directory temporary file, file fsync, atomic rename, and directory fsync. The client logged `Upload complete lilvault-m0-offline.md`. This verifies live detection of the atomic-replacement pattern intended for gateway writes, in addition to the earlier external-create test.
+
+A supported `sync-status --path /vault --json` query was run with read-only home/vault mounts. Its fields were `vaultId`, `vaultName`, `vaultPath`, `syncMode`, `conflictStrategy`, `deviceName`, `configDir`, `fileTypes`, `configs`, and `excludedFolders`. It returned configuration, not connection state, pending-change counts, or last successful sync time. The gateway must expose those unsupported values as unknown unless a separate reliable observation exists. Logs provide observed connection/upload/conflict events; process liveness alone is insufficient.
+
+## Requirements and terms review
+
+Reviewed the official installation instructions, installed CLI behavior, [Terms of Service](https://obsidian.md/terms), and [license overview](https://obsidian.md/license) (both legal pages state last updated 2025-02-20). Node.js 22+ and an active Sync subscription are required. The license overview describes free personal/commercial application use; this does not waive service terms or grant redistribution rights.
+
+The Terms reserve rights in the software/services and restrict activities including reverse engineering, redistribution/sharing of the services/software, and using the service to provide services for others. This project currently uses the official installed client for the operator's own disposable vaults and agents; it is not a hosted third-party Sync service. No proprietary implementation was inspected or modified. The npm package remains `UNLICENSED`; no prebuilt image containing it has been published. Obtain appropriate permission/review before distributing bundled clients or offering access to other people. This is an engineering scope review, not a legal opinion or blanket licensing clearance.
+
+## M0 version and storage record
+
+| Item | Verified value |
+|---|---|
+| Node image | `node:26.13.0-bookworm-slim` |
+| Official package | `obsidian-headless@0.0.14` |
+| Credential/config home | Docker volume `lilvault-m0-auth` at `/home/node` |
+| Account token | `/home/node/.config/obsidian-headless/auth_token` (contents never printed) |
+| Per-vault state | `/home/node/.config/obsidian-headless/sync/<remote-vault-id>/` |
+| First vault | `test`, remote ID `d3f1689b375b7abb3007f525d82806be`, host `/home/arch/lilvault/data/vaults/test`, container `/vault` |
+| Second vault | `test2`, remote ID `e62fa21afbab05205ead62eabcfe5e77`, host `/home/arch/lilvault/data/vaults/test2`, container `/vaults/test2` |
+| Current first process | `lilvault-m0-conflict-resync`, container `lilvault-m0-sync-conflict` |
+| Current second process | `lilvault-m0-test2-continuous-sync`, container `lilvault-m0-sync-test2` |
+
+Both continuous processes remain running under the process manager. They do not yet have production Compose restart policies or host-boot autostart. No credential/home volume may be mounted into the future Rust gateway.
 
 ## Planned next steps
 
@@ -245,8 +295,8 @@ The operator is asked to change the same line in desktop Obsidian to `Shared lin
 4. Account/config storage paths were observed using filesystem metadata only. Keep the credential home separate from vault data and inaccessible to the future gateway.
 5. E2EE setup is complete; unattended saved authentication/decryption worked in both one-shot and continuous fresh containers.
 6. Initial sync, local-to-Obsidian visibility, Obsidian-to-local edits, and saved authentication/sync after container recreation are verified.
-7. External create/upload, bounded offline startup/recreation recovery, and independent second-vault startup are verified. Desktop multi-vault isolation/return-edit checks passed. Complete conflicts, other external mutations, and live network-drop recovery.
-8. Record exact commands, versions, paths, and observed outcomes. Only mark M0 passed after all required real tests succeed.
+7. External create/atomic-update detection, bounded offline startup/recreation recovery, independent vault processes, desktop isolation, and conflict behavior are recorded. Carry live network-drop recovery and alternate conflict-strategy tests into hardening before real-vault production rollout.
+8. Proceed to M1/M2 against disposable vaults only: path-safe Rust core, fail-closed configuration/auth, conditional REST writes, tests, then official MCP transport and Hermes verification. Remote transport still needs operator approval before any network/proxy changes.
 
 ## Verification so far
 
@@ -263,5 +313,9 @@ The operator is asked to change the same line in desktop Obsidian to `Shared lin
 - Container recreation: **passed**; replacement reached `Fully synced` without prompts and retained the verified desktop reply. A same-name auto-removal race was handled by confirming the old container was gone and using a replacement name.
 - Offline startup: **passed within tested scope**; connection error, no `Fully synced`, bounded termination at 20 seconds. Normal-network recreation: **passed**, queued probe uploaded and `Fully synced` reported. Live same-process disconnection/reconnection remains untested.
 - Secret/data ignore checks: **passed** (10 ignored paths and 7 publishable exceptions); initial Markdown diagnostics and whitespace checks passed.
-- No Rust code exists; Cargo checks are not applicable yet.
+- Conflict probe: **observed and documented**; default `merge` reported success but discarded the competing local line in this test. Second-vault isolation remained intact.
+- Live atomic replacement: **passed**, client-reported upload completion.
+- Requirements/terms: **reviewed for the private operator-owned feasibility scope**; no bundled-client redistribution or third-party service permission assumed.
+- M0 decision: **GO for disposable-vault M1/M2 development**, not production release. Same-process live reconnect, alternate conflict preservation, and host-boot autostart remain untested.
+- No Rust code exists at M0 completion; Cargo checks are not applicable yet.
 - A real Obsidian desktop/zoro round trip is demonstrated. No Rust gateway, Hermes operation, or MCP round trip has been implemented or demonstrated.
