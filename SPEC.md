@@ -1,7 +1,7 @@
 # lilvault — Implementation Specification
 
 Version: 0.1.0-draft\
-Target: zoro (Linux host; operate directly when local, otherwise via SSH)\
+Target: Linux host (operate directly when local, otherwise via SSH)\
 Implementation: Rust, Docker Compose, Obsidian Headless\
 Status: Ready for implementation, subject to M0 validation
 
@@ -16,7 +16,7 @@ Prioritize minimal setup, operational reliability, and correct file semantics ov
 ## 2. Fixed decisions
 
 - Rust gateway: Tokio + Axum + Serde + tracing. Prefer `rmcp` for MCP after verifying current API and Streamable HTTP support.
-- Docker Compose deployment on zoro.
+- Docker Compose deployment on the deployment host.
 - Multiple Obsidian Sync vaults, each with its own persistent local working tree and independent Headless sync process.
 - Official `obsidian-headless` package for synchronization; **do not reverse engineer the proprietary Sync protocol**.
 - Obsidian Sync subscription is required.
@@ -32,11 +32,11 @@ No hosted signup, agent orchestration, message board, embeddings, knowledge grap
 
 ## 4. User stories
 
-1. As operator, I can connect an existing Obsidian Sync vault once on zoro.
+1. As operator, I can connect an existing Obsidian Sync vault once on the deployment host.
 2. As operator, I can configure two or more vaults without rebuilding the application.
 3. As an agent, I can discover authorized vaults, list directories, read Markdown notes, create notes, and update notes through MCP.
 4. As an agent, I cannot access vaults for which my credential lacks permission.
-5. As a human, I see agent-created notes in Obsidian after sync completes, and agents can read my Obsidian edits after they synchronize to zoro.
+5. As a human, I see agent-created notes in Obsidian after sync completes, and agents can read my Obsidian edits after they synchronize to the deployment host.
 6. As operator, I can identify when sync is degraded rather than mistake local write success for cloud synchronization.
 7. As operator, I can restart the deployment without losing vaults or credentials.
 
@@ -87,7 +87,7 @@ lilvault/
     compose.yaml
     sync-entrypoint.sh
   scripts/
-    bootstrap-zoro.sh
+    bootstrap-host.sh
     verify-sync.sh
   docs/
     OPERATIONS.md
@@ -198,7 +198,7 @@ Credentials should be provisioned interactively or via supported documented envi
 
 Sync status must distinguish `initializing`, `ready`, `degraded`, and `stopped`, with explicit `unknown` fields when the Headless client offers no reliable acknowledgment. Do not infer cloud freshness from process liveness alone.
 
-## 13. Deployment on zoro
+## 13. Deployment on the deployment host
 
 Use `deploy/compose.yaml` with:
 
@@ -210,7 +210,7 @@ Use `deploy/compose.yaml` with:
 - No Obsidian credentials in the gateway container.
 - No external DB required.
 
-Provide a documented route for remote MCP over HTTPS through an existing reverse proxy or secure tunnel; **do not assume zoro has a domain, TLS certificates, or a particular proxy installed**. Ask the operator which exposure mechanism to use before modifying network or proxy configuration. Never expose unauthenticated MCP or vault data publicly.
+Provide a documented route for remote MCP over HTTPS through an existing reverse proxy or secure tunnel; **do not assume the deployment host has a domain, TLS certificates, or a particular proxy installed**. Ask the operator which exposure mechanism to use before modifying network or proxy configuration. Never expose unauthenticated MCP or vault data publicly.
 
 Suggested data layout:
 
@@ -222,7 +222,7 @@ Suggested data layout:
   obsidian-auth/
 ```
 
-The implementation agent may inspect zoro over SSH but must request approval before installing system packages, changing firewall/proxy settings, or touching existing non-lilvault services. Do not overwrite existing vault directories. Back up before destructive operations.
+The implementation agent may inspect the deployment host over SSH but must request approval before installing system packages, changing firewall/proxy settings, or touching existing non-lilvault services. Do not overwrite existing vault directories. Back up before destructive operations.
 
 ## 14. Tests and acceptance criteria
 
@@ -243,7 +243,7 @@ The implementation agent may inspect zoro over SSH but must request approval bef
 
 ### Manual end-to-end tests
 - Authenticate Headless to a disposable Obsidian Sync vault.
-- Create a note in Obsidian and observe it on zoro.
+- Create a note in Obsidian and observe it on the deployment host.
 - Create a note via Hermes MCP and observe it in Obsidian.
 - Restart both containers; no re-login required.
 - Add second vault; verify independent sync and access control.
@@ -254,7 +254,7 @@ The implementation agent may inspect zoro over SSH but must request approval bef
 
 ## 15. Milestones
 
-**M0 — Validate Headless on zoro (hard gate).** Inspect host; build minimal pinned Headless container; authenticate to disposable vault; verify bidirectional sync, restart, second vault, and external writes. Record exact commands, version, and results. Do not build a substantial API before this passes.
+**M0 — Validate Headless on the deployment host (hard gate).** Inspect host; build minimal pinned Headless container; authenticate to disposable vault; verify bidirectional sync, restart, second vault, and external writes. Record exact commands, version, and results. Do not build a substantial API before this passes.
 
 **M1 — Minimal Rust gateway.** Implement config, auth, path-safe filesystem core, REST read/list/write, revision checks, tests.
 
@@ -266,7 +266,7 @@ The implementation agent may inspect zoro over SSH but must request approval bef
 
 ## 16. Coding agent operating instructions
 
-1. Start by inspecting the existing zoro environment and report findings. Do not assume Docker, Rust, Node, reverse proxy, or repository directory are already present.
+1. Start by inspecting the existing the deployment host environment and report findings. Do not assume Docker, Rust, Node, reverse proxy, or repository directory are already present.
 2. Verify official Headless CLI behavior against the installed pinned version; do not fabricate command flags or credential paths.
 3. Implement **M0 first**. If blocked, report the blocker and a minimal alternative; do not silently substitute an unofficial sync protocol.
 4. Commit working changes in small, logically separated steps. Do not commit credentials, local vault contents, database files, or `.env`.

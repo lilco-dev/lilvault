@@ -4,11 +4,11 @@
 
 The operator approved a separate Tailscale Serve HTTPS listener on **9443**, proxying to lilvault on **`127.0.0.1:8737`**. The existing port-443 Funnel serves another application and was not reused. Before/after checks verified that every existing TCP/Web/Funnel entry remained unchanged and no public Funnel was enabled on 9443. Listener inspection showed loopback only for the gateway and Tailnet interface addresses only for 9443, not wildcard/public binds.
 
-Concrete Tailnet DNS, the generated bearer, runtime configuration, binary snapshot, route snapshots, and verification report are stored privately on zoro under `~/lilvault/runtime/`, outside Git. The directory is mode `0700`; config, token, and reports are mode `0600`. The deployed agent has only `test:read-write`. The gateway has no Obsidian auth volume or Docker socket.
+Concrete Tailnet DNS, the generated bearer, runtime configuration, binary snapshot, route snapshots, and verification report are stored privately on the deployment host under `~/lilvault/runtime/`, outside Git. The directory is mode `0700`; config, token, and reports are mode `0600`. The deployed agent has only `test:read-write`. The gateway has no Obsidian auth volume or Docker socket.
 
 The gateway is running under the session process manager, not a boot-supervised production service. The Serve route is persisted by the existing Tailscale daemon. A host reboot/session-process stop can therefore leave an HTTPS proxy whose backend is unavailable. Production Compose/restart/backup packaging remains M4.
 
-## Verification performed from zoro
+## Verification performed from the deployment host
 
 Using the real HTTPS endpoint, the verifier disabled ambient HTTP proxies and kept normal certificate/hostname verification enabled. It checked:
 
@@ -24,11 +24,11 @@ The operator identified the remote Hermes machine. The initial strict, nonintera
 
 ## Remote reachability check (no token needed)
 
-From the Hermes machine, after it is connected to the Tailnet, substitute zoro's actual Tailnet DNS:
+From the Hermes machine, after it is connected to the Tailnet, substitute the deployment host's actual Tailnet DNS:
 
 ```sh
 curl --noproxy '*' --connect-timeout 10 -i \
-  'https://<zoro-tailnet-dns>:9443/mcp'
+  'https://<gateway-tailnet-dns>:9443/mcp'
 ```
 
 A **401** is the expected unauthenticated result: it proves HTTPS reachability and the bearer boundary without exposing a credential. Do not use `-k` to bypass certificate validation. A connection timeout may indicate an offline peer or Tailnet ACL/port restriction; do not modify ACLs or existing services without approval.
@@ -40,7 +40,7 @@ The current [official Hermes MCP config reference](https://github.com/NousResear
 ```yaml
 mcp_servers:
   lilvault:
-    url: "https://<zoro-tailnet-dns>:9443/mcp"
+    url: "https://<gateway-tailnet-dns>:9443/mcp"
     headers:
       Authorization: "Bearer ${LILVAULT_HERMES_TOKEN}"
 ```
@@ -55,7 +55,7 @@ After the actual Hermes client connects:
 
 1. Discover authorized vaults and read an existing test note.
 2. Use `write_file` with `create_only: true` to create a new uniquely named disposable note.
-3. Verify the actual note/revision on zoro and the sync client's upload observation.
+3. Verify the actual note/revision on the deployment host and the sync client's upload observation.
 4. Have the operator confirm that note appears in desktop Obsidian.
 
 Only then mark the remote Hermes/Obsidian M2 acceptance complete. Local HTTPS or SDK-only success is not a substitute. All [core consistency limits](API.md) and [MCP Host/Origin restrictions](MCP.md) still apply. Do not add a public Funnel or repurpose another application's route to bypass a private connectivity problem.

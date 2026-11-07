@@ -5,7 +5,7 @@
 **M1 and the local M2 MCP slice are implemented and verified; remote Hermes acceptance awaits access to the operator-named Tailnet machine. Not production-ready.** Real desktop round trips, multi-vault isolation, container recreation, external create/atomic-update detection, and bounded offline failure/recovery are verified. Default Headless `merge` discarded the competing local line in the conflict probe despite reporting success; document this limit and test alternate conflict preservation before real-vault rollout. Both sync processes are running. Live same-process reconnection and boot autostart remain hardening work. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The operator approved public GitHub publication to `lilco-dev/lilvault`; private HTTPS :9443 is approved, configured, and locally verified without changing the existing :443 Funnel. Remote SSH timed out and the Hermes peer subsequently reported offline; no Hermes configuration has been changed.
 
 ## M0 — Headless feasibility (must complete first)
-- [x] Inspect zoro directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
+- [x] Inspect the deployment host directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
 - [x] Confirm current official Obsidian Headless installation requirements and terms.
   - Reviewed official installation requirements and legal pages for owner-operated private use; no bundled-client redistribution or hosted-service permission is assumed.
 - [x] Build pinned Node/Headless Docker image with persistent credential and vault volumes.
@@ -43,8 +43,10 @@
   - Every HTTP request authenticates; no legacy sessions; SDK Host checks and deny-present-Origin policy tested.
 - [x] Implement list_vaults, list_files, read_file, write_file tools.
   - Shared core, structured errors, and preconditions tested with a real SDK client over HTTP. All 25 tests, fmt, Clippy, and a production binary build passed. See [docs/M2-FINDINGS.md](docs/M2-FINDINGS.md).
+- [x] Add a portable standalone MCP CLI based on the operator-provided Hermes helper.
+  - `scripts/lilvault` preserves `tools`/`call`, uses explicit environment/token-file configuration, and passes 10 standard-library HTTP tests plus the existing 25 Rust tests. Live HTTPS discovery/read and the installed loopback client were verified without changing notes. See [docs/CLI.md](docs/CLI.md).
 - [ ] Connect Hermes remotely through approved HTTPS/private transport.
-  - Private HTTPS :9443 and loopback gateway are live; TLS, unauthenticated 401, authenticated initialization, and test-only scope verified from zoro. Existing :443 Funnel unchanged. Remote peer/SSH access is currently blocked; see [docs/TAILNET.md](docs/TAILNET.md).
+  - Private HTTPS :9443 and loopback gateway are live; TLS, unauthenticated 401, authenticated initialization, and test-only scope verified from the deployment host. Existing :443 Funnel unchanged. Remote peer/SSH access is currently blocked; see [docs/TAILNET.md](docs/TAILNET.md).
 - [ ] Demonstrate Hermes-created note appears in Obsidian.
 
 ## M3 — Hardening
@@ -70,7 +72,7 @@
   - Observed a new Markdown file written externally after continuous sync readiness being detected and uploaded; modify/delete behavior and conflicts still need testing.
 - [x] Reliable sync health and conflict observability.
   - Supported `sync-status --json` reports configuration only. Observe connection/upload/conflict logs; unsupported freshness fields must remain unknown and liveness is not readiness.
-- [x] Preferred approved HTTPS/tunnel access to zoro.
+- [x] Preferred approved HTTPS/tunnel access to the deployment host.
   - Separate Tailnet-only Serve HTTPS :9443 to loopback :8737; never reuse the existing public :443 Funnel.
 - [x] Exact vault names/IDs and which disposable vault to use first.
   - `test` and `test2`, exact IDs and isolated storage paths recorded in M0 findings.

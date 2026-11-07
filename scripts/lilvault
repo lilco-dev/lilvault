@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Call lilvault MCP tools without waiting for an agent's tool-discovery refresh."""
+
+import argparse
+import ipaddress
+import json
+import os
+import sys
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+PROTOCOL = "2025-06-18"
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward an agent credential to a redirect target.
+        return None
+
+
+def settings():
+    url = os.environ.get("LILVAULT_URL", "http://127.0.0.1:8737/mcp")
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname
+    try:
+        loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = False
+    if not host or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+        raise ValueError("LILVAULT_URL must be an endpoint URL without credentials, query, or fragment")
+    if parsed.scheme != "https" and not (parsed.scheme == "http" and loopback):
+        raise ValueError("LILVAULT_URL requires HTTPS except on loopback")
+    token = os.environ.get("LILVAULT_TOKEN", "").strip()
+    if not token and os.environ.get("LILVAULT_TOKEN_FILE"):
+        token = Path(os.environ["LILVAULT_TOKEN_FILE"]).read_text(encoding="utf-8").strip()
+    if not token or any(character.isspace() for character in token):
+        raise ValueError("set LILVAULT_TOKEN or LILVAULT_TOKEN_FILE to a single bearer token")
+    return url, token
+
+
+class Client:
+    def __init__(self, url, token):
+        self.url = url
+        self.token = token
+        self.session = None
+        self.protocol = None
+        self.request_id = 0
+        # Tailnet/local traffic must not inherit an unrelated ambient HTTP proxy.
+        self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+    def post(self, payload):
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "Authorization": "Bearer " + self.token,
+        }
+        if self.session:
+            headers["Mcp-Session-Id"] = self.session
+        if self.protocol:
+            headers["MCP-Protocol-Version"] = self.protocol
+        request = urllib.request.Request(self.url, data=json.dumps(payload).encode(), headers=headers)
+        with self.http.open(request, timeout=60) as response:
+            self.session = response.headers.get("Mcp-Session-Id", self.session)
+            body = response.read().decode("utf-8")
+        if not body.strip():
+            return None
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            # shortcut: buffered POST events only; use an MCP SDK for persistent streams/resumption.
+            for event in body.replace("\r\n", "\n").split("\n\n"):
+                data = "\n".join(line[5:].lstrip(" ") for line in event.splitlines() if line.startswith("data:"))
+                if data:
+                    message = json.loads(data)
+                    if isinstance(message, dict) and message.get("id") == payload.get("id"):
+                        return message
+            raise ValueError("server returned neither JSON nor a matching MCP event") from None
+
+    def rpc(self, method, params):
+        self.request_id += 1
+        response = self.post({"jsonrpc": "2.0", "id": self.request_id, "method": method, "params": params})
+        if not isinstance(response, dict) or response.get("jsonrpc") != "2.0" or response.get("id") != self.request_id:
+            raise ValueError("invalid or mismatched MCP response")
+        if "error" in response:
+            raise ValueError("MCP error: " + json.dumps(response["error"]))
+        if not isinstance(response.get("result"), dict):
+            raise ValueError("MCP response is missing an object result")
+        return response["result"]
+
+    def initialize(self):
+        result = self.rpc("initialize", {
+            "protocolVersion": PROTOCOL,
+            "capabilities": {},
+            "clientInfo": {"name": "lilvault-cli", "version": "0.1.0"},
+        })
+        if result.get("protocolVersion") != PROTOCOL:
+            raise ValueError("server did not negotiate the supported MCP protocol " + PROTOCOL)
+        self.protocol = PROTOCOL
+        self.post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("tools", help="list available MCP tools")
+    call = commands.add_parser("call", help="call an MCP tool")
+    call.add_argument("tool")
+    call.add_argument("arguments", nargs="?", default="{}", help="JSON object; use - to read stdin")
+    args = parser.parse_args()
+    try:
+        arguments = {}
+        if args.command == "call":
+            arguments = json.loads(sys.stdin.read() if args.arguments == "-" else args.arguments)
+            if not isinstance(arguments, dict):
+                raise ValueError("tool arguments must be a JSON object")
+        client = Client(*settings())
+        client.initialize()
+        if args.command == "tools":
+            result = client.rpc("tools/list", {})
+            for tool in result.get("tools", []):
+                print(f"{tool['name']:15} {tool.get('description', '')}")
+            return 0
+        result = client.rpc("tools/call", {"name": args.tool, "arguments": arguments})
+        texts = [part["text"] for part in result.get("content", []) if part.get("type") == "text"]
+        if texts:
+            print("\n".join(texts))
+        else:
+            print(json.dumps(result.get("structuredContent", result), indent=2))
+        return 1 if result.get("isError") else 0
+    except (OSError, ValueError) as error:
+        print(f"lilvault: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

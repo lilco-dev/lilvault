@@ -1,8 +1,10 @@
 # M0 — Headless feasibility log
 
+> Public report: hostnames, user-specific paths, device labels, and remote vault IDs are generalized or omitted.
+
 ## Decision
 
-**M0 GO for M1/M2 development against the disposable vaults; not a production release.** Official Headless `0.0.14` on Node `26.13.0` demonstrated real bidirectional desktop sync, independent vaults, saved authentication/encryption setup across container recreation, external creates/atomic replacements, and bounded offline failure/recreation recovery. The controlled conflict test completed and exposed a significant limit: default `merge` kept the desktop line but did not retain the competing zoro line, despite logging a successful merge. The gateway must not promise lossless conflict resolution or atomic CAS against Sync. Keep real vaults backed up and do not treat this feasibility decision as a production safety guarantee. Live network-drop recovery in one process, alternate conflict-copy behavior, host-reboot autostart, and wider failure cases remain hardening work. No host packages or networking settings were changed by the agent; the operator performed the earlier kernel reboot.
+**M0 GO for M1/M2 development against the disposable vaults; not a production release.** Official Headless `0.0.14` on Node `26.13.0` demonstrated real bidirectional desktop sync, independent vaults, saved authentication/encryption setup across container recreation, external creates/atomic replacements, and bounded offline failure/recreation recovery. The controlled conflict test completed and exposed a significant limit: default `merge` kept the desktop line but did not retain the competing the deployment host line, despite logging a successful merge. The gateway must not promise lossless conflict resolution or atomic CAS against Sync. Keep real vaults backed up and do not treat this feasibility decision as a production safety guarantee. Live network-drop recovery in one process, alternate conflict-copy behavior, host-reboot autostart, and wider failure cases remain hardening work. No host packages or networking settings were changed by the agent; the operator performed the earlier kernel reboot.
 
 ## Initial investigation — 2026-11-06
 
@@ -13,9 +15,9 @@
 - GitHub CLI is authenticated, but `gh repo view lilco-dev/lilvault --json nameWithOwner,visibility,url` could not resolve the repository. This does not distinguish a nonexistent repository from one the current account cannot access.
 - The operator approved **public** publication to `lilco-dev/lilvault`. Prepublication checks found only expected documentation/build metadata across Git history, with no vault data or credentials detected by the baseline pattern scan; no dedicated secret-scanner binary is installed.
 
-### Direct zoro host inspection
+### Direct deployment-host inspection
 
-The operator confirmed this session is already on zoro. An initial unnecessary SSH attempt failed; this is **not a project blocker**. `/proc/sys/kernel/hostname` confirms `zoro` (the `hostname` command itself is not installed).
+The deployment host was inspected locally. An initial unnecessary SSH attempt did not block local work. Host identity was verified without publishing its name.
 
 Read-only local inspection found:
 
@@ -86,7 +88,7 @@ A planned reboot into the installed kernel may restore module availability, but 
 
 ## Post-reboot verification — 2026-11-06
 
-The operator rebooted zoro. Running kernel is now `7.2.14-arch1-1`, its module tree exists, and the Docker daemon reports `29.9.3`. The same build passed without a host-network workaround:
+The operator rebooted the deployment host. Running kernel is now `7.2.14-arch1-1`, its module tree exists, and the Docker daemon reports `29.9.3`. The same build passed without a host-network workaround:
 
 ```sh
 sudo -n docker build --file deploy/Dockerfile.sync --tag lilvault-sync:m0 .
@@ -108,7 +110,7 @@ Observed:
 
 ### Next operator action: interactive login
 
-Run in a normal terminal on zoro, not through an agent tool or recorded session:
+Run in a normal terminal on the deployment host, not through an agent tool or recorded session:
 
 ```sh
 sudo docker run --rm -it --log-driver=none \
@@ -122,7 +124,7 @@ Enter account credentials/2FA through the official prompts. Do not paste passwor
 
 The operator completed interactive login and approved the E2EE remote vault named `test`. A fresh container ran `sync-list-remote --json` using only the persistent home volume. It returned exactly one vault named `test`; unrelated vault names and raw account output were not printed. This verifies reuse of saved authentication, not synchronization or health.
 
-Created `/home/arch/lilvault/data/vaults/test` as a new empty directory with UID/GID `1000:1000` and mode `0700`; existing directories would have caused the operation to fail rather than be reused or overwritten. An offline container verified that this separate bind mount is empty and writable by the non-root runtime. No note files or encryption secrets were written by the agent.
+Created `$HOME/lilvault/data/vaults/test` as a new empty directory with UID/GID `1000:1000` and mode `0700`; existing directories would have caused the operation to fail rather than be reused or overwritten. An offline container verified that this separate bind mount is empty and writable by the non-root runtime. No note files or encryption secrets were written by the agent.
 
 ### Next operator action: E2EE vault setup
 
@@ -131,9 +133,9 @@ Run locally and enter the vault encryption password at the official prompt, not 
 ```sh
 sudo docker run --rm -it --log-driver=none \
   --mount type=volume,source=lilvault-m0-auth,target=/home/node \
-  --mount type=bind,source=/home/arch/lilvault/data/vaults/test,target=/vault \
+  --mount "type=bind,source=$HOME/lilvault/data/vaults/test,target=/vault" \
   lilvault-sync:m0 sync-setup \
-  --vault test --path /vault --device-name lilvault-zoro-m0
+  --vault test --path /vault --device-name lilvault-headless-m0
 ```
 
 This configures only the approved disposable vault. Do not run a concurrent Headless process against the same local path. The operator completed setup; subsequent unattended sync results are recorded below.
@@ -145,11 +147,11 @@ After the operator completed E2EE setup, a fresh noninteractive container ran:
 ```sh
 sudo -n docker run --rm --name lilvault-m0-initial-sync --log-driver=none \
   --mount type=volume,source=lilvault-m0-auth,target=/home/node \
-  --mount type=bind,source=/home/arch/lilvault/data/vaults/test,target=/vault \
+  --mount "type=bind,source=$HOME/lilvault/data/vaults/test,target=/vault" \
   lilvault-sync:m0 sync --path /vault
 ```
 
-It exited `0`, reported a successful connection and `Fully synced`, and did not prompt for account or encryption credentials. Logged settings were bidirectional sync, conflict strategy `merge`, device `lilvault-zoro-m0`, and config syncing disabled. This is the Headless client's reported default merge behavior, not a gateway conflict guarantee. No Markdown notes were downloaded because the remote vault appeared empty.
+It exited `0`, reported a successful connection and `Fully synced`, and did not prompt for account or encryption credentials. Logged settings were bidirectional sync, conflict strategy `merge`, device `lilvault-headless-m0`, and config syncing disabled. This is the Headless client's reported default merge behavior, not a gateway conflict guarantee. No Markdown notes were downloaded because the remote vault appeared empty.
 
 Filesystem metadata inspection (no credential/config contents read) observed:
 
@@ -160,7 +162,7 @@ Filesystem metadata inspection (no credential/config contents read) observed:
 
 A second fresh container, named `lilvault-m0-sync`, then started the same command with `--continuous` and also reported `Fully synced` without prompts. It is managed as process `lilvault-m0-test-continuous-sync`. Only this process owns the local test vault.
 
-After that readiness message, an exclusive filesystem create wrote `lilvault-m0-roundtrip.md` at `2026-11-06T04:14:42.321306+00:00`. Existing files were not overwritten. It contains a test heading, the creation timestamp, and `Obsidian reply: pending`. The running Headless process then logged `Uploading file lilvault-m0-roundtrip.md`, `Upload complete lilvault-m0-roundtrip.md`, and `Fully synced`. This verifies detection of a live external filesystem write and the client's reported upload completion. The operator then confirmed completion of the requested desktop edit. The agent verified the exact line `Obsidian reply: hello from Obsidian` in the local note (178 bytes). This confirms desktop visibility and a real Obsidian-to-zoro return edit, not merely a local write or process-liveness assumption.
+After that readiness message, an exclusive filesystem create wrote `lilvault-m0-roundtrip.md` at `2026-11-06T04:14:42.321306+00:00`. Existing files were not overwritten. It contains a test heading, the creation timestamp, and `Obsidian reply: pending`. The running Headless process then logged `Uploading file lilvault-m0-roundtrip.md`, `Upload complete lilvault-m0-roundtrip.md`, and `Fully synced`. This verifies detection of a live external filesystem write and the client's reported upload completion. The operator then confirmed completion of the requested desktop edit. The agent verified the exact line `Obsidian reply: hello from Obsidian` in the local note (178 bytes). This confirms desktop visibility and a real Obsidian-to-host return edit, not merely a local write or process-liveness assumption.
 
 ## Container recreation test
 
@@ -176,7 +178,7 @@ Stopped only the test sync container, then ran the same client with no container
 timeout --signal=TERM --kill-after=5s 20s sudo -n docker run --rm \
   --name lilvault-m0-offline --network none --log-driver=none \
   --mount type=volume,source=lilvault-m0-auth,target=/home/node \
-  --mount type=bind,source=/home/arch/lilvault/data/vaults/test,target=/vault \
+  --mount "type=bind,source=$HOME/lilvault/data/vaults/test,target=/vault" \
   lilvault-sync:m0 sync --path /vault
 ```
 
@@ -196,16 +198,16 @@ Started a fresh normal-network container named `lilvault-m0-sync-recovery`, with
 
 ### Second vault preparation and setup
 
-Created new local directory `/home/arch/lilvault/data/vaults/test2`, mode `0700`, UID/GID `1000:1000`, refusing existing paths. Offline checks confirmed an empty, writable non-root mount. The supported `sync-list-local --json` command reported the first vault registered at `/vault`. Because the processes share a credential home, the second vault will use a distinct in-container path `/vaults/test2` rather than reusing `/vault`; this avoids ambiguous local-path registrations. Account/config contents were not read.
+Created new local directory `$HOME/lilvault/data/vaults/test2`, mode `0700`, UID/GID `1000:1000`, refusing existing paths. Offline checks confirmed an empty, writable non-root mount. The supported `sync-list-local --json` command reported the first vault registered at `/vault`. Because the processes share a credential home, the second vault will use a distinct in-container path `/vaults/test2` rather than reusing `/vault`; this avoids ambiguous local-path registrations. Account/config contents were not read.
 
 Run in a normal terminal and enter any encryption password only at the prompt:
 
 ```sh
 sudo docker run --rm -it --log-driver=none \
   --mount type=volume,source=lilvault-m0-auth,target=/home/node \
-  --mount type=bind,source=/home/arch/lilvault/data/vaults/test2,target=/vaults/test2 \
+  --mount "type=bind,source=$HOME/lilvault/data/vaults/test2,target=/vaults/test2" \
   lilvault-sync:m0 sync-setup \
-  --vault test2 --path /vaults/test2 --device-name lilvault-zoro-m0-test2
+  --vault test2 --path /vaults/test2 --device-name lilvault-headless-m0-test2
 ```
 
 The first setup request reported HTTP `504` while fetching vault info. The operator subsequently reported successful configuration for `test2`. Read-only `sync-list-local --json` checks found exactly one registration at `/vault` and one at `/vaults/test2`; no config/credential contents were read. The first vault's continuous-sync process remained running and was not reconfigured.
@@ -215,7 +217,7 @@ Started an independent second process using:
 ```sh
 sudo -n docker run --rm --name lilvault-m0-sync-test2 --log-driver=none \
   --mount type=volume,source=lilvault-m0-auth,target=/home/node \
-  --mount type=bind,source=/home/arch/lilvault/data/vaults/test2,target=/vaults/test2 \
+  --mount "type=bind,source=$HOME/lilvault/data/vaults/test2,target=/vaults/test2" \
   lilvault-sync:m0 sync --path /vaults/test2 --continuous
 ```
 
@@ -233,9 +235,9 @@ Exclusive creation added `lilvault-m0-conflict.md` to `test` with exactly:
 Shared line: baseline
 ```
 
-The running client logged `Upload complete lilvault-m0-conflict.md`. The agent then stopped only `lilvault-m0-sync-recovery` with `docker stop --timeout 15`; its process exited successfully. Container inspection confirmed no running sync owner for `test`, while `test2` still had exactly one. A targeted edit changed only the probe's local last line to `Shared line: zoro version`.
+The running client logged `Upload complete lilvault-m0-conflict.md`. The agent then stopped only `lilvault-m0-sync-recovery` with `docker stop --timeout 15`; its process exited successfully. Container inspection confirmed no running sync owner for `test`, while `test2` still had exactly one. A targeted edit changed only the probe's local last line to `Shared line: host version`.
 
-The operator changed the same line in desktop Obsidian to `Shared line: desktop version` and confirmed desktop Sync completion while zoro's first-vault sync was paused. Only this disposable probe was intentionally conflicted. After verifying the divergent local version was still present and no first-vault process was running, the agent started `lilvault-m0-sync-conflict` with the original first-vault mounts and `sync --path /vault --continuous`.
+The operator changed the same line in desktop Obsidian to `Shared line: desktop version` and confirmed desktop Sync completion while the deployment host's first-vault sync was paused. Only this disposable probe was intentionally conflicted. After verifying the divergent local version was still present and no first-vault process was running, the agent started `lilvault-m0-sync-conflict` with the original first-vault mounts and `sync --path /vault --continuous`.
 
 The client logged:
 
@@ -255,7 +257,7 @@ The resulting local note was:
 Shared line: desktop version
 ```
 
-The local competing `Shared line: zoro version` was not retained, and no similarly named conflict-copy file appeared. These are observations of one probe under default `merge`, not a general rule for all merges. The second vault's reply remained intact and both containers remained running. Successful merge/sync acknowledgment must never be described as preserving every competing edit.
+The local competing `Shared line: host version` was not retained, and no similarly named conflict-copy file appeared. These are observations of one probe under default `merge`, not a general rule for all merges. The second vault's reply remained intact and both containers remained running. Successful merge/sync acknowledgment must never be described as preserving every competing edit.
 
 Installed `sync-config --help` advertises `--conflict-strategy` choices `merge` and `conflict`. The alternate strategy has not been enabled or tested; verify its behavior before making conflict-preservation claims for real vaults.
 
@@ -280,8 +282,8 @@ The Terms reserve rights in the software/services and restrict activities includ
 | Credential/config home | Docker volume `lilvault-m0-auth` at `/home/node` |
 | Account token | `/home/node/.config/obsidian-headless/auth_token` (contents never printed) |
 | Per-vault state | `/home/node/.config/obsidian-headless/sync/<remote-vault-id>/` |
-| First vault | `test`, remote ID `d3f1689b375b7abb3007f525d82806be`, host `/home/arch/lilvault/data/vaults/test`, container `/vault` |
-| Second vault | `test2`, remote ID `e62fa21afbab05205ead62eabcfe5e77`, host `/home/arch/lilvault/data/vaults/test2`, container `/vaults/test2` |
+| First vault | `test`, remote ID omitted, host `$HOME/lilvault/data/vaults/test`, container `/vault` |
+| Second vault | `test2`, remote ID omitted, host `$HOME/lilvault/data/vaults/test2`, container `/vaults/test2` |
 | Current first process | `lilvault-m0-conflict-resync`, container `lilvault-m0-sync-conflict` |
 | Current second process | `lilvault-m0-test2-continuous-sync`, container `lilvault-m0-sync-test2` |
 
@@ -302,14 +304,14 @@ Both continuous processes remain running under the process manager. They do not 
 
 - Specification and kickoff instructions reviewed.
 - Official documentation and npm metadata inspected.
-- Direct zoro host inspection: **passed**. An unnecessary SSH attempt failed but does not block local work.
+- Direct deployment-host inspection: **passed**. An unnecessary SSH attempt failed but does not block local work.
 - Existing passwordless sudo Docker access: **passed**; no permission changes made.
 - Initial sync image build failed at Docker bridge setup. After operator reboot: **build passed**, Headless version/help checks passed, dedicated persistent home is writable as non-root.
 - Interactive login: **operator completed**. Credential reuse in a fresh container: **passed** via remote vault enumeration.
 - Separate persistent vault bind mount: **passed** empty/writable non-root check. E2EE vault setup: **operator completed**.
 - Fresh-container unattended one-shot sync: **passed**, exit `0` and `Fully synced`; initial remote was empty.
 - Fresh-container continuous sync startup: **passed**, `Fully synced`. Live external test-note detection/upload and human desktop visibility: **passed**.
-- Desktop-to-zoro return edit: **passed**; exact expected reply found in the local note.
+- Desktop-to-host return edit: **passed**; exact expected reply found in the local note.
 - Container recreation: **passed**; replacement reached `Fully synced` without prompts and retained the verified desktop reply. A same-name auto-removal race was handled by confirming the old container was gone and using a replacement name.
 - Offline startup: **passed within tested scope**; connection error, no `Fully synced`, bounded termination at 20 seconds. Normal-network recreation: **passed**, queued probe uploaded and `Fully synced` reported. Live same-process disconnection/reconnection remains untested.
 - Secret/data ignore checks: **passed** (10 ignored paths and 7 publishable exceptions); initial Markdown diagnostics and whitespace checks passed.
@@ -318,4 +320,4 @@ Both continuous processes remain running under the process manager. They do not 
 - Requirements/terms: **reviewed for the private operator-owned feasibility scope**; no bundled-client redistribution or third-party service permission assumed.
 - M0 decision: **GO for disposable-vault M1/M2 development**, not production release. Same-process live reconnect, alternate conflict preservation, and host-boot autostart remain untested.
 - No Rust code exists at M0 completion; Cargo checks are not applicable yet.
-- A real Obsidian desktop/zoro round trip is demonstrated. No Rust gateway, Hermes operation, or MCP round trip has been implemented or demonstrated.
+- A real Obsidian desktop/host round trip is demonstrated. No Rust gateway, Hermes operation, or MCP round trip has been implemented or demonstrated.

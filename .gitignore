@@ -15,6 +15,10 @@
 # Rust build output
 /target/
 
+# Python test bytecode
+__pycache__/
+*.pyc
+
 # Editor and operating-system files
 .DS_Store
 *.swp

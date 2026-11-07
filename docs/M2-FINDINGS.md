@@ -39,7 +39,7 @@ The SDK API was checked against installed official source/docs, not copied from 
 
 **M2 is not complete:** no remote Hermes MCP operation or Hermes-created note's real Obsidian Sync round trip has occurred. The SDK client's temporary-vault test is not a substitute for that acceptance criterion.
 
-The operator identified the remote Hermes Tailnet machine and approved separate private HTTPS on port 9443. The route and loopback gateway are now live; normal-TLS authentication and the `test:read-write` scope were verified from zoro. Original port-443 Funnel entries were compared and preserved, with no new public Funnel. A dedicated random token and runtime files were provisioned outside Git with private permissions. See [TAILNET.md](TAILNET.md).
+The operator identified the remote Hermes Tailnet machine and approved separate private HTTPS on port 9443. The route and loopback gateway are now live; normal-TLS authentication and the `test:read-write` scope were verified from the deployment host. Original port-443 Funnel entries were compared and preserved, with no new public Funnel. A dedicated random token and runtime files were provisioned outside Git with private permissions. See [TAILNET.md](TAILNET.md).
 
 The first strict read-only SSH attempt to the remote machine on port 22 timed out, and Tailnet status subsequently reported it offline. Remote profile/version inspection, Hermes configuration, secure credential transfer, and actual client access remain blocked; no remote configuration or service changes were made. Need the machine online and the correct approved SSH user/port, or an operator-applied configuration path. Do not paste token values into chat or Git.
 

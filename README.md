@@ -6,7 +6,7 @@ A self-hosted gateway exposing existing Obsidian Sync vaults to remote AI agents
 
 ## Progress
 
-M0 verified official Obsidian Headless in Docker on `zoro`: real desktop round trips, two isolated vaults, container recreation, external atomic writes, bounded offline recovery, and observed conflict behavior. M1 adds fail-closed configuration, vault-scoped bearer authentication, Linux descriptor-relative Markdown operations, conditional writes, and a REST API. The local MCP slice adds four authenticated tools through the official Rust SDK's stateless Streamable HTTP transport. See [M0 findings](docs/M0-FINDINGS.md), the [REST contract](docs/API.md), and the [MCP contract](docs/MCP.md).
+M0 verified official Obsidian Headless in Docker on a Linux deployment host: real desktop round trips, two isolated vaults, container recreation, external atomic writes, bounded offline recovery, and observed conflict behavior. M1 adds fail-closed configuration, vault-scoped bearer authentication, Linux descriptor-relative Markdown operations, conditional writes, and a REST API. The local MCP slice adds four authenticated tools through the official Rust SDK's stateless Streamable HTTP transport. See [M0 findings](docs/M0-FINDINGS.md), the [REST contract](docs/API.md), and the [MCP contract](docs/MCP.md).
 
 The intended flow is:
 
@@ -45,6 +45,10 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 ```
 
+## Command-line client
+
+Use `./scripts/lilvault tools` or `./scripts/lilvault call <tool> '<json-args>'` for immediate MCP access without waiting for an agent's discovery refresh. Requires Python 3 and a credential supplied through `LILVAULT_TOKEN` or `LILVAULT_TOKEN_FILE`; no extra Python packages. See [CLI usage and tests](docs/CLI.md).
+
 ## Project documents
 
 - [SPEC.md](SPEC.md): scope, fixed decisions, security requirements, and acceptance criteria.
@@ -52,6 +56,7 @@ cargo test --all-targets
 - [AGENT_PROMPT.md](AGENT_PROMPT.md): kickoff instructions.
 - [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md): Headless research and real sync verification.
 - [docs/API.md](docs/API.md): REST usage, configuration, filesystem guarantees, and limits.
+- [docs/CLI.md](docs/CLI.md): standalone MCP command-line client and credential configuration.
 - [docs/M1-FINDINGS.md](docs/M1-FINDINGS.md): REST implementation scope and verification evidence.
 - [docs/MCP.md](docs/MCP.md): MCP URL, tools, authentication, Host/Origin policy, and limits.
 - [docs/M2-FINDINGS.md](docs/M2-FINDINGS.md): local SDK-client verification and remote demo prerequisites.
