@@ -1,0 +1,67 @@
+# Docker Standalone / Portainer stack. Build/load images before deploying.
+services:
+  gateway:
+    image: lilvault-gateway:0.1.0
+    pull_policy: never
+    user: "${LILVAULT_UID:-1000}:${LILVAULT_GID:-1000}"
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    ports:
+      - "127.0.0.1:8737:8737"
+    environment:
+      RUST_LOG: info
+      LILVAULT_HERMES_TOKEN: "${LILVAULT_HERMES_TOKEN:?Set the agent token}"
+      LILVAULT_SECOND_AGENT_TOKEN: "${LILVAULT_SECOND_AGENT_TOKEN:-}"
+    volumes:
+      - type: bind
+        source: "${LILVAULT_ROOT:?Set the stack root}/config/gateway.toml"
+        target: /etc/lilvault/config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${LILVAULT_ROOT}/vaults"
+        target: /data/vaults
+        bind:
+          create_host_path: false
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  sync:
+    image: lilvault-sync:0.0.14-node26.13.0
+    pull_policy: never
+    user: "${LILVAULT_UID:-1000}:${LILVAULT_GID:-1000}"
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    command: [sync, --path, /vaults/agents, --continuous]
+    volumes:
+      - type: bind
+        source: "${LILVAULT_ROOT}/vaults/agents"
+        target: /vaults/agents
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${LILVAULT_ROOT}/sync-auth"
+        target: /home/node
+        bind:
+          create_host_path: false
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"

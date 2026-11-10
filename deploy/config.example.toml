@@ -1,0 +1,23 @@
+# Install as <stack-root>/config/gateway.toml, readable by the container UID.
+[server]
+# Listen inside the container; Compose publishes only on the host's loopback.
+listen = "0.0.0.0:8737"
+# Add the exact approved private HTTPS authority before remote use.
+mcp_allowed_hosts = ["localhost", "127.0.0.1", "::1"]
+
+[[vaults]]
+id = "agents"
+path = "/data/vaults/agents"
+enabled = true
+
+[[agents]]
+name = "hermes"
+token_env = "LILVAULT_HERMES_TOKEN"
+permissions = ["agents:read-write"]
+
+# For a second credential, uncomment this block and supply its existing token
+# as LILVAULT_SECOND_AGENT_TOKEN in the stack environment.
+# [[agents]]
+# name = "secondary"
+# token_env = "LILVAULT_SECOND_AGENT_TOKEN"
+# permissions = ["agents:read-write"]

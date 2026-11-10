@@ -60,6 +60,7 @@
 
 ## M4 — Release packaging
 - [ ] Finalize Dockerfiles, Compose, .env/config examples.
+  - Both gateway/official Sync images build; the parameterized image-only Portainer stack and templates pass 15 Python tests (including two real-container tests) plus the existing 25 Rust tests, fmt, and Clippy. Nondefault UID/GID operation, MCP filesystem writes, symlink rejection, and isolated Headless home were verified with disposable volumes. Actual NAS deployment and migration remain gated on admin permissions, credential transfer, and an approved private route. See [docs/PORTAINER.md](docs/PORTAINER.md).
 - [ ] Add provisioning and backup/recovery instructions.
 - [ ] Add README quickstart and operational troubleshooting.
 - [ ] Verify clean install on a disposable directory.

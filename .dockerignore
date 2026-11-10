@@ -1,2 +1,7 @@
-# No repository files, secrets, or vault content are needed in the sync image.
+# Strict build-context allowlist for both images; no credentials or vault data.
 **
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/**/
+!src/**/*.rs

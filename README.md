@@ -45,6 +45,10 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 ```
 
+## Docker / NAS / Portainer
+
+A prepared Docker Standalone stack is available in [deploy/compose.yaml](deploy/compose.yaml). It uses prebuilt local images, non-root users, a parameterized dataset root, isolated Sync credentials, and restart policies for both services. See [Portainer deployment and migration](docs/PORTAINER.md) before deploying; preparing this stack does not migrate or stop an existing instance.
+
 ## Command-line client
 
 Use `./scripts/lilvault tools` or `./scripts/lilvault call <tool> '<json-args>'` for immediate MCP access without waiting for an agent's discovery refresh. Requires Python 3 and a credential supplied through `LILVAULT_TOKEN` or `LILVAULT_TOKEN_FILE`; no extra Python packages. See [CLI usage and tests](docs/CLI.md).
@@ -61,6 +65,7 @@ Use `./scripts/lilvault tools` or `./scripts/lilvault call <tool> '<json-args>'`
 - [docs/MCP.md](docs/MCP.md): MCP URL, tools, authentication, Host/Origin policy, and limits.
 - [docs/M2-FINDINGS.md](docs/M2-FINDINGS.md): local SDK-client verification and remote demo prerequisites.
 - [docs/TAILNET.md](docs/TAILNET.md): approved private HTTPS route, credential handling, and pending Hermes setup.
+- [docs/PORTAINER.md](docs/PORTAINER.md): Docker images, dataset permissions, Portainer variables, and migration gates.
 
 ## Development guardrails
 
