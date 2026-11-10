@@ -2,7 +2,7 @@
 
 ## Current status
 
-**M1 and the local M2 MCP slice are implemented and verified; remote Hermes acceptance awaits access to the operator-named Tailnet machine. Not production-ready.** Real desktop round trips, multi-vault isolation, container recreation, external create/atomic-update detection, and bounded offline failure/recovery are verified. Default Headless `merge` discarded the competing local line in the conflict probe despite reporting success; document this limit and test alternate conflict preservation before real-vault rollout. Both sync processes are running. Live same-process reconnection and boot autostart remain hardening work. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md). The operator approved public GitHub publication to `lilco-dev/lilvault`; private HTTPS :9443 is approved, configured, and locally verified without changing the existing :443 Funnel. Remote SSH timed out and the Hermes peer subsequently reported offline; no Hermes configuration has been changed.
+**M1, the portable CLI, and the local M2 MCP slice are implemented and verified; independent desktop visibility and native Hermes-agent acceptance remain. Not production-ready.** The gateway now exposes only `agents:read-write` to both existing credentials, with unchanged tokens. The dedicated Headless client connected, reported fully synced, and reported upload completion for a create-only setup note. Both credentials and the existing remote helper read the new vault successfully; retired `test`/`test2` IDs are denied and their sync owners are stopped, while local data is retained. Existing HTTPS/Funnel routes are unchanged. The sync container has an `unless-stopped` restart policy; the gateway remains session-managed, not boot-supervised. M0's historical default-merge loss and external-writer CAS limits still apply. See [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md), [docs/TAILNET.md](docs/TAILNET.md), and [docs/M2-FINDINGS.md](docs/M2-FINDINGS.md).
 
 ## M0 — Headless feasibility (must complete first)
 - [x] Inspect the deployment host directly (or via SSH when remote): OS, architecture, Docker/Compose, disk, and existing proxy/network setup.
@@ -46,7 +46,7 @@
 - [x] Add a portable standalone MCP CLI based on the operator-provided Hermes helper.
   - `scripts/lilvault` preserves `tools`/`call`, uses explicit environment/token-file configuration, and passes 10 standard-library HTTP tests plus the existing 25 Rust tests. Live HTTPS discovery/read and the installed loopback client were verified without changing notes. See [docs/CLI.md](docs/CLI.md).
 - [ ] Connect Hermes remotely through approved HTTPS/private transport.
-  - Private HTTPS :9443 and loopback gateway are live; TLS, unauthenticated 401, authenticated initialization, and test-only scope verified from the deployment host. Existing :443 Funnel unchanged. Remote peer/SSH access is currently blocked; see [docs/TAILNET.md](docs/TAILNET.md).
+  - Private HTTPS :9443 and loopback gateway are live; both unchanged credentials see only `agents`, and retired vault IDs are denied. The existing remote helper read the setup note successfully. Native Hermes-agent acceptance remains separate; see [docs/TAILNET.md](docs/TAILNET.md).
 - [ ] Demonstrate Hermes-created note appears in Obsidian.
 
 ## M3 — Hardening
