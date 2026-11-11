@@ -1,4 +1,4 @@
-"""Compose checks; set LILVAULT_DOCKER_TESTS=1 for disposable image smoke tests."""
+"""Compose checks; opt in to disposable container tests with LILVAULT_DOCKER_TESTS=1."""
 
 import json
 import os
@@ -19,53 +19,72 @@ class ComposeTests(unittest.TestCase):
     def setUpClass(cls):
         if not shutil.which("docker"):
             raise unittest.SkipTest("Docker Compose CLI unavailable")
-        result = subprocess.run(["docker", "compose", "version"], capture_output=True)
-        if result.returncode:
+        if subprocess.run(["docker", "compose", "version"], capture_output=True).returncode:
             raise unittest.SkipTest("Docker Compose plugin unavailable")
 
-    def render(self, remove=None):
+    def render(self, remove=None, **overrides):
         env = {"PATH": os.environ["PATH"], "HOME": str(Path.home()),
-               "LILVAULT_ROOT": "/tmp/lilvault-stack-fixture", "LILVAULT_UID": "3000",
-               "LILVAULT_GID": "3000", "LILVAULT_HERMES_TOKEN": TOKEN}
+               "LILVAULT_ROOT": "/test/lilvault-fixture", "LILVAULT_HERMES_TOKEN": TOKEN}
+        env.update(overrides)
         if remove:
             env.pop(remove)
         return subprocess.run(["docker", "compose", "--file", str(ROOT / "deploy/compose.yaml"),
                                "config", "--format", "json"], env=env, text=True, capture_output=True)
 
-    def test_stack_is_private_nonroot_and_restarts_both_services(self):
+    def test_stack_uses_public_images_and_nonroot_app_services(self):
         result = self.render()
         self.assertEqual(result.returncode, 0, result.stderr)
         services = json.loads(result.stdout)["services"]
-        self.assertEqual(set(services), {"gateway", "sync"})
-        for service in services.values():
+        self.assertEqual(set(services), {"initialize", "gateway", "sync"})
+        for name, service in services.items():
             self.assertNotIn("build", service)
-            self.assertEqual(service["restart"], "unless-stopped")
-            self.assertEqual(service["user"], "3000:3000")
+            self.assertTrue(service["image"].startswith("ghcr.io/lilco-dev/lilvault"))
+            self.assertTrue(service["image"].endswith(":latest"))
+            self.assertEqual(service["pull_policy"], "always")
             self.assertTrue(service["read_only"])
-            self.assertTrue(service["init"])
             self.assertEqual(service["cap_drop"], ["ALL"])
             self.assertIn("no-new-privileges:true", service["security_opt"])
             self.assertNotIn("privileged", service)
+            if name != "initialize":
+                self.assertEqual(service["restart"], "unless-stopped")
+                self.assertEqual(service["user"], "568:568")
+                self.assertTrue(service["init"])
+                self.assertEqual(service["depends_on"]["initialize"]["condition"], "service_completed_successfully")
+        init = services["initialize"]
+        self.assertEqual(init["user"], "0:0")
+        self.assertEqual(init["restart"], "no")
+        self.assertEqual(init["network_mode"], "none")
+        self.assertEqual(set(init["cap_add"]), {"CHOWN", "FOWNER", "DAC_OVERRIDE"})
+        self.assertNotIn("LILVAULT_HERMES_TOKEN", init["environment"])
         port = services["gateway"]["ports"][0]
         self.assertEqual(port["host_ip"], "127.0.0.1")
         self.assertEqual(port["target"], 8737)
         self.assertNotIn("ports", services["sync"])
 
-    def test_auth_storage_is_not_mounted_in_gateway(self):
-        result = self.render()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        services = json.loads(result.stdout)["services"]
+    def test_auth_and_runtime_cache_are_not_mounted_in_gateway(self):
+        services = json.loads(self.render().stdout)["services"]
         gateway = services["gateway"]["volumes"]
-        self.assertEqual({v["target"] for v in gateway}, {"/etc/lilvault/config.toml", "/data/vaults"})
-        config = next(v for v in gateway if v["target"] == "/etc/lilvault/config.toml")
-        self.assertTrue(config["read_only"])
+        self.assertEqual({v["target"] for v in gateway}, {"/etc/lilvault", "/data/vaults"})
+        self.assertTrue(next(v for v in gateway if v["target"] == "/etc/lilvault")["read_only"])
         for service in services.values():
             for volume in service["volumes"]:
-                self.assertFalse(volume["bind"]["create_host_path"])
-                self.assertTrue(volume["source"].startswith("/tmp/lilvault-stack-fixture/"))
                 self.assertNotIn("docker.sock", volume["source"])
+                if volume["type"] == "bind":
+                    self.assertTrue(volume["source"].startswith("/test/lilvault-fixture"))
+                else:
+                    self.assertTrue(volume["volume"]["nocopy"])
         self.assertIn("/home/node", {v["target"] for v in services["sync"]["volumes"]})
-        self.assertNotIn("environment", services["sync"])
+        self.assertIn("/opt/obsidian", {v["target"] for v in services["sync"]["volumes"]})
+        self.assertFalse(services["initialize"]["volumes"][0]["bind"]["create_host_path"])
+
+    def test_overrides_and_optional_agent_do_not_leak_secrets_to_initializer(self):
+        services = json.loads(self.render(LILVAULT_UID="3000", LILVAULT_GID="3001",
+                                         LILVAULT_IMAGE_TAG="0.1.0",
+                                         LILVAULT_SECOND_AGENT_TOKEN="d" * 64).stdout)["services"]
+        self.assertEqual(services["gateway"]["user"], "3000:3001")
+        self.assertTrue(services["sync"]["image"].endswith(":0.1.0"))
+        self.assertEqual(services["initialize"]["environment"]["LILVAULT_ENABLE_SECOND_AGENT"], "1")
+        self.assertNotIn("d" * 64, json.dumps(services["initialize"]))
 
     def test_missing_required_settings_fail_closed(self):
         for setting in ["LILVAULT_ROOT", "LILVAULT_HERMES_TOKEN"]:
@@ -79,8 +98,7 @@ class ImageTests(unittest.TestCase):
     def setUpClass(cls):
         cls.docker = []
         for prefix in [["docker"], ["sudo", "-n", "docker"]]:
-            result = subprocess.run(prefix + ["info"], capture_output=True, timeout=15)
-            if result.returncode == 0:
+            if subprocess.run(prefix + ["info"], capture_output=True, timeout=15).returncode == 0:
                 cls.docker = prefix
                 break
         if not cls.docker:
@@ -91,9 +109,8 @@ class ImageTests(unittest.TestCase):
             cls.run_docker("image", "inspect", image)
 
     @classmethod
-    def run_docker(cls, *args, stdin=None):
-        return subprocess.run(cls.docker + list(args), input=stdin, text=True,
-                              capture_output=True, check=True, timeout=45)
+    def run_docker(cls, *args):
+        return subprocess.run(cls.docker + list(args), text=True, capture_output=True, check=True, timeout=240)
 
     def setUp(self):
         import uuid
@@ -114,15 +131,24 @@ class ImageTests(unittest.TestCase):
         self.volumes.append(name)
         return name
 
-    def initialize_volumes(self, mounts, script, stdin=None):
-        args = ["run", "--rm", "--network", "none", "--user", "0:0", "--entrypoint", "/bin/sh"]
-        if stdin is not None:
-            args.append("--interactive")
-        for volume, target in mounts:
-            args.extend(["--mount", f"type=volume,source={volume},target={target}"])
-        self.run_docker(*args, self.gateway_image, "-c", script, stdin=stdin)
+    def initialize(self, stack, runtime, **overrides):
+        env = {"LILVAULT_UID": "3000", "LILVAULT_GID": "3000"}
+        env.update(overrides)
+        args = ["run", "--rm", "--network", "none", "--user", "0:0", "--read-only",
+                "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "FOWNER",
+                "--cap-add", "DAC_OVERRIDE", "--security-opt", "no-new-privileges:true",
+                "--entrypoint", "/usr/local/bin/lilvault-init",
+                "--mount", f"type=volume,source={stack},target=/stack,volume-nocopy",
+                "--mount", f"type=volume,source={runtime},target=/runtime,volume-nocopy"]
+        for key, value in env.items():
+            args.extend(["--env", key + "=" + value])
+        return self.run_docker(*args, self.gateway_image)
 
-    def wait_for_listener(self, name):
+    def fixture_shell(self, stack, script):
+        return self.run_docker("run", "--rm", "--network", "none", "--entrypoint", "/bin/sh", "--user", "0:0",
+                               "--mount", f"type=volume,source={stack},target=/stack", self.gateway_image, "-c", script)
+
+    def wait_for_log(self, name, expected):
         logs = subprocess.Popen(self.docker + ["logs", "--follow", name], stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, bufsize=0)
         try:
@@ -131,11 +157,11 @@ class ImageTests(unittest.TestCase):
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or not select.select([logs.stdout], [], [], remaining)[0]:
-                    self.fail("Gateway did not report readiness")
+                    self.fail("Container did not report expected readiness")
                 line = logs.stdout.readline()
                 if not line:
-                    self.fail("Gateway exited before readiness")
-                if b"lilvault REST listening" in line:
+                    self.fail("Container exited before readiness")
+                if expected in line:
                     return
         finally:
             logs.terminate()
@@ -143,26 +169,75 @@ class ImageTests(unittest.TestCase):
             if logs.stdout:
                 logs.stdout.close()
 
-    def test_gateway_nondefault_uid_filesystem_mcp_and_health(self):
-        data, config = self.volume("data"), self.volume("config")
-        text = ('[server]\nlisten="0.0.0.0:8737"\n[[vaults]]\nid="agents"\n'
-                'path="/data/vaults/agents"\n[[agents]]\nname="fixture"\n'
-                'token_env="LILVAULT_HERMES_TOKEN"\npermissions=["agents:read-write"]\n')
-        self.initialize_volumes([(data, "/data"), (config, "/config")],
-                                'cat > /config/config.toml && mkdir /data/agents && '
-                                'ln -s /etc/passwd /data/agents/escape.md && '
-                                'chown -R 3000:3000 /data /config && '
-                                'chmod 700 /data /data/agents /config && chmod 600 /config/config.toml', text)
+    def test_build_context_allowlist_excludes_private_files_inside_source_directories(self):
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="lilvault-context-") as temporary:
+            context = Path(temporary)
+            shutil.copyfile(ROOT / ".dockerignore", context / ".dockerignore")
+            for name in ["Cargo.toml", "Cargo.lock", "src/main.rs", "src/vault.rs",
+                         "deploy/initialize.sh", "deploy/sync-entrypoint.sh", "deploy/.env",
+                         "src/private.json", "vaults/note.md"]:
+                path = context / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture-not-a-secret\n")
+            dockerfile = context / "Dockerfile"
+            dockerfile.write_text("FROM " + self.gateway_image + "\nUSER 0:0\nCOPY . /probe/\n"
+                                  "RUN test -f /probe/src/main.rs && test -f /probe/src/vault.rs "
+                                  "&& test -f /probe/deploy/initialize.sh "
+                                  "&& test -f /probe/deploy/sync-entrypoint.sh "
+                                  "&& test ! -e /probe/deploy/.env && test ! -e /probe/src/private.json "
+                                  "&& test ! -e /probe/vaults\n")
+            image = self.prefix + "-context"
+            try:
+                self.run_docker("build", "--file", str(dockerfile), "--tag", image, str(context))
+            except subprocess.CalledProcessError as error:
+                self.fail(error.stdout + error.stderr)
+            finally:
+                subprocess.run(self.docker + ["image", "rm", image], capture_output=True, timeout=30)
+
+    def test_initializer_is_idempotent_without_recursing_or_overwriting_custom_config(self):
+        stack, runtime = self.volume("stack"), self.volume("runtime")
+        self.initialize(stack, runtime)
+        self.fixture_shell(stack, 'printf untouched > /stack/config/custom.toml; '
+                                 'printf keep > /stack/vaults/agents/keep.md; chmod 600 /stack/vaults/agents/keep.md')
+        self.initialize(stack, runtime, LILVAULT_MCP_HOST="gateway.example:9443", LILVAULT_ENABLE_SECOND_AGENT="1")
+        data = self.fixture_shell(stack, 'stat -c "%u:%g:%a" /stack /stack/config/gateway.generated.toml '
+                                        '/stack/vaults/agents/keep.md; '
+                                        'test "$(head -c 9 /stack/config/custom.toml)" = untouched; '
+                                        'grep -F "gateway.example:9443" /stack/config/gateway.generated.toml; '
+                                        'grep -F LILVAULT_SECOND_AGENT_TOKEN /stack/config/gateway.generated.toml').stdout
+        self.assertIn("3000:3000:700", data)
+        self.assertIn("3000:3000:600", data)
+        self.assertIn("0:0:600", data)
+        self.assertIn("LILVAULT_SECOND_AGENT_TOKEN", data)
+
+    def test_initializer_rejects_unsafe_parameters_and_targets(self):
+        stack, runtime = self.volume("stack"), self.volume("runtime")
+        for overrides in [{"LILVAULT_UID": "0"}, {"LILVAULT_GID": "0"}, {"LILVAULT_UID": "../bad"},
+                          {"LILVAULT_MCP_HOST": 'x\"]\n[[agents]]'}, {"LILVAULT_MCP_HOST": "https://example"}]:
+            with self.subTest(overrides=overrides), self.assertRaises(subprocess.CalledProcessError):
+                self.initialize(stack, runtime, **overrides)
+        self.initialize(stack, runtime)
+        self.fixture_shell(stack, 'rm /stack/config/gateway.generated.toml; '
+                                 'ln -s /etc/passwd /stack/config/gateway.generated.toml')
+        with self.assertRaises(subprocess.CalledProcessError) as error:
+            self.initialize(stack, runtime)
+        self.assertIn("unsafe generated", error.exception.stderr)
+
+    def test_gateway_after_automatic_setup_has_secure_filesystem_mcp_and_health(self):
+        stack, runtime = self.volume("stack"), self.volume("runtime")
+        self.initialize(stack, runtime)
+        self.fixture_shell(stack, "ln -s /etc/passwd /stack/vaults/agents/escape.md")
         name = self.prefix + "-gateway"
         self.containers.append(name)
         self.run_docker("run", "--detach", "--name", name, "--init", "--user", "3000:3000",
                         "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                        "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m", "--publish", "127.0.0.1::8737",
-                        "--env", "LILVAULT_HERMES_TOKEN=" + TOKEN,
-                        "--mount", f"type=volume,source={data},target=/data/vaults",
-                        "--mount", f"type=volume,source={config},target=/etc/lilvault,readonly",
-                        self.gateway_image)
-        self.wait_for_listener(name)
+                        "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m",  # noqa: S108 - container-local memory mount.
+                        "--publish", "127.0.0.1::8737", "--env", "LILVAULT_HERMES_TOKEN=" + TOKEN,
+                        "--mount", f"type=volume,source={stack},volume-subpath=vaults,target=/data/vaults,volume-nocopy",
+                        "--mount", f"type=volume,source={stack},volume-subpath=config,target=/etc/lilvault,readonly,volume-nocopy",
+                        self.gateway_image, "/etc/lilvault/gateway.generated.toml")
+        self.wait_for_log(name, b"lilvault REST listening")
         state = json.loads(self.run_docker("inspect", name).stdout)[0]
         port = state["NetworkSettings"]["Ports"]["8737/tcp"][0]
         self.assertEqual(port["HostIp"], "127.0.0.1")
@@ -188,15 +263,30 @@ class ImageTests(unittest.TestCase):
         self.assertNotEqual(escaped.returncode, 0)
         self.assertNotIn("root:", escaped.stdout)
 
-    def test_headless_nondefault_uid_private_home_and_readonly_image(self):
-        auth = self.volume("auth")
-        self.initialize_volumes([(auth, "/home/node")], "chown -R 3000:3000 /home/node && chmod 700 /home/node")
-        result = self.run_docker("run", "--rm", "--user", "3000:3000", "--network", "none",
-                                 "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                                 "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
-                                 "--mount", f"type=volume,source={auth},target=/home/node",
-                                 self.sync_image, "sync-list-local", "--json")
-        self.assertEqual(json.loads(result.stdout)["vaults"], [])
+    def test_public_runner_installs_outside_image_reuses_cache_offline_and_waits_for_setup(self):
+        stack, runtime = self.volume("stack"), self.volume("runtime")
+        self.initialize(stack, runtime)
+        self.run_docker("run", "--rm", "--network", "none", "--entrypoint", "/bin/sh", self.sync_image,
+                        "-c", "test ! -d /usr/local/lib/node_modules/obsidian-headless")
+        args = ["--init", "--user", "3000:3000", "--read-only", "--cap-drop", "ALL",
+                "--security-opt", "no-new-privileges:true",
+                "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",  # noqa: S108 - container-local memory mount.
+                "--mount", f"type=volume,source={stack},volume-subpath=sync-auth,target=/home/node,volume-nocopy",
+                "--mount", f"type=volume,source={stack},volume-subpath=vaults/agents,target=/vaults/agents,volume-nocopy",
+                "--mount", f"type=volume,source={runtime},target=/opt/obsidian,volume-nocopy"]
+        first = self.run_docker("run", "--rm", *args, self.sync_image, "sync-list-local", "--json")
+        self.assertEqual(json.loads(first.stdout)["vaults"], [])
+        second = self.run_docker("run", "--rm", "--network", "none", *args, self.sync_image, "sync-list-local", "--json")
+        self.assertEqual(json.loads(second.stdout)["vaults"], [])
+        self.assertNotIn("Installing pinned", second.stderr)
+        name = self.prefix + "-sync"
+        self.containers.append(name)
+        self.run_docker("run", "--detach", "--name", name, "--network", "none", *args, self.sync_image)
+        self.wait_for_log(name, b"Waiting for setup.")
+        console = self.run_docker("exec", name, "ob", "sync-list-local", "--json")
+        self.assertEqual(json.loads(console.stdout)["vaults"], [])
+        self.assertTrue(json.loads(self.run_docker("inspect", name).stdout)[0]["State"]["Running"])
+        self.run_docker("stop", "--time", "5", name)
 
 
 if __name__ == "__main__":

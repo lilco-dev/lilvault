@@ -67,7 +67,7 @@ Reverse proxy / private tunnel (existing infrastructure)
            Obsidian clients
 ```
 
-Use two services: `lilvault` (Rust API) and `sync` (Node runtime with official Headless CLI). Share only the vault data volume. Sync authentication storage belongs to the sync service and must not be mounted into the Rust service. Both services run as non-root, with compatible filesystem ownership.
+Use two long-running services: the Rust API and `sync` (Node runtime with the official Headless CLI). Share only vault data between them. Sync authentication storage belongs to Sync and must not be mounted into the gateway. Both run as non-root with compatible ownership; TrueNAS deployments default to the built-in apps UID/GID 568:568. A bounded one-shot, network-disabled initializer may prepare only the dedicated dataset directories, generated non-secret config, and runtime-cache ownership before these services start.
 
 **Sync ownership:** one Headless process per vault working directory; never start two processes against the same path. Docker Compose restarts the sync container. A minimal supervisor may launch and monitor multiple child processes, restarting failed children with bounded exponential backoff. Avoid a complex orchestration system.
 
@@ -203,7 +203,8 @@ Sync status must distinguish `initializing`, `ready`, `degraded`, and `stopped`,
 Use `deploy/compose.yaml` with:
 
 - `lilvault` Rust service bound to `127.0.0.1:8737` on host (not public by default).
-- `sync` service with Node and pinned official Headless client.
+- `sync` service with pinned Node and official Headless client. Public GHCR images contain only a runner; it installs the pinned official package at runtime into a separate persistent cache instead of assuming redistribution rights to the proprietary client.
+- Compose-driven directory/config initialization and GHCR version/SHA/latest tags, without manual NAS builds or directory preparation.
 - Persistent vault, state, and sync-credential directories.
 - Non-root users and compatible UID/GID.
 - Restart policies, graceful termination, health checks where meaningful.

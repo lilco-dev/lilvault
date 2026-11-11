@@ -47,7 +47,7 @@ cargo test --all-targets
 
 ## Docker / NAS / Portainer
 
-A prepared Docker Standalone stack is available in [deploy/compose.yaml](deploy/compose.yaml). It uses prebuilt local images, non-root users, a parameterized dataset root, isolated Sync credentials, and restart policies for both services. See [Portainer deployment and migration](docs/PORTAINER.md) before deploying; preparing this stack does not migrate or stop an existing instance.
+Create a dedicated dataset, paste [deploy/compose.yaml](deploy/compose.yaml) into Portainer, set private variables, and pull the published GHCR images. A bounded one-shot initializer creates the layout/config; the long-running services use TrueNAS's `apps` UID/GID **568:568** by default and restart automatically. The public Sync runner downloads the pinned official client on first start rather than redistributing proprietary software. See [Portainer setup, image tags, and one-time Obsidian login](docs/PORTAINER.md). Preparing the stack does not migrate or stop an existing instance.
 
 ## Command-line client
 

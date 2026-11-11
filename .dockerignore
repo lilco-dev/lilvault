@@ -3,5 +3,10 @@
 !Cargo.toml
 !Cargo.lock
 !src/
-!src/**/
-!src/**/*.rs
+src/**
+# shortcut: sources are flat; extend this allowlist when adding module folders.
+!src/*.rs
+!deploy/
+deploy/**
+!deploy/initialize.sh
+!deploy/sync-entrypoint.sh

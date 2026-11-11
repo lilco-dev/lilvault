@@ -1,11 +1,15 @@
-# Official client; build locally for self-hosted use, do not publish credentialed images.
+# Public runner only: official Headless is fetched on the operator's first start.
 FROM node:26.13.0-bookworm-slim
 
-RUN npm install --global --omit=dev obsidian-headless@0.0.14 \
-    && npm cache clean --force
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends util-linux \
+    && rm -rf /var/lib/apt/lists/*
+COPY deploy/sync-entrypoint.sh /usr/local/bin/lilvault-sync
+RUN chmod 0755 /usr/local/bin/lilvault-sync \
+    && ln -s /usr/local/bin/lilvault-sync /usr/local/bin/ob
 
 ENV HOME=/home/node
 USER node
 WORKDIR /home/node
-ENTRYPOINT ["ob"]
-CMD ["--help"]
+ENTRYPOINT ["/usr/local/bin/lilvault-sync"]
+CMD ["serve"]

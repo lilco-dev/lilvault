@@ -1,0 +1,95 @@
+name: Containers
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: containers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install declared minimum Rust toolchain
+        run: >-
+          rustup toolchain install 1.88.0 --profile minimal
+          --component clippy --component rustfmt
+      - name: Rust checks
+        run: |
+          cargo +1.88.0 fmt --check
+          cargo +1.88.0 clippy --all-targets -- -D warnings
+          cargo +1.88.0 test --all-targets
+      - name: Build disposable test images
+        run: |
+          docker compose version
+          sh -n deploy/initialize.sh deploy/sync-entrypoint.sh
+          docker build -f deploy/Dockerfile -t lilvault-gateway:0.1.0 .
+          docker build -f deploy/Dockerfile.sync \
+            -t lilvault-sync:0.0.14-node26.13.0 .
+      - name: CLI, Compose, initialization and real-container tests
+        env:
+          LILVAULT_DOCKER_TESTS: '1'
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  publish:
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: lilvault
+            dockerfile: deploy/Dockerfile
+          - image: lilvault-sync
+            dockerfile: deploy/Dockerfile.sync
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      # docker/setup-buildx-action v3
+      - uses: >-
+          docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # docker/metadata-action v5
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051
+        id: metadata
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      # docker/build-push-action v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max

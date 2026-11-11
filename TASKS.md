@@ -60,7 +60,7 @@
 
 ## M4 — Release packaging
 - [ ] Finalize Dockerfiles, Compose, .env/config examples.
-  - Both gateway/official Sync images build; the parameterized image-only Portainer stack and templates pass 15 Python tests (including two real-container tests) plus the existing 25 Rust tests, fmt, and Clippy. Nondefault UID/GID operation, MCP filesystem writes, symlink rejection, and isolated Headless home were verified with disposable volumes. Actual NAS deployment and migration remain gated on admin permissions, credential transfer, and an approved private route. See [docs/PORTAINER.md](docs/PORTAINER.md).
+  - App-owned automatic initialization (TrueNAS apps 568:568), generated config, and public GHCR gateway/Sync-runner publishing are implemented. The proprietary official client is installed only at runtime into a separate versioned cache. All 19 Python tests (including five real-Docker tests) and 25 Rust tests pass locally; fmt/Clippy also pass on the declared Rust 1.88 toolchain. Initialization/idempotence, unsafe inputs, context secret exclusion, MCP writes, offline cache reuse, and pre-login console access are verified. First GHCR package visibility and actual NAS/HTTPS migration still require acceptance. See [docs/PORTAINER.md](docs/PORTAINER.md).
 - [ ] Add provisioning and backup/recovery instructions.
 - [ ] Add README quickstart and operational troubleshooting.
 - [ ] Verify clean install on a disposable directory.

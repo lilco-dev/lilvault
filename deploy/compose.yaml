@@ -1,11 +1,44 @@
-# Docker Standalone / Portainer stack. Build/load images before deploying.
+# Portainer: create the dataset, paste this stack, set private variables.
 services:
+  initialize:
+    image: ghcr.io/lilco-dev/lilvault:${LILVAULT_IMAGE_TAG:-latest}
+    pull_policy: always
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [/usr/local/bin/lilvault-init]
+    command: []
+    environment:
+      LILVAULT_UID: "${LILVAULT_UID:-568}"
+      LILVAULT_GID: "${LILVAULT_GID:-568}"
+      LILVAULT_MCP_HOST: "${LILVAULT_MCP_HOST:-}"
+      LILVAULT_ENABLE_SECOND_AGENT: "${LILVAULT_SECOND_AGENT_TOKEN:+1}"
+    volumes:
+      - type: bind
+        source: "${LILVAULT_ROOT:?Set the stack dataset mountpoint}"
+        target: /stack
+        bind:
+          create_host_path: false
+      - type: volume
+        source: headless-runtime
+        target: /runtime
+        volume:
+          nocopy: true
+
   gateway:
-    image: lilvault-gateway:0.1.0
-    pull_policy: never
-    user: "${LILVAULT_UID:-1000}:${LILVAULT_GID:-1000}"
+    image: ghcr.io/lilco-dev/lilvault:${LILVAULT_IMAGE_TAG:-latest}
+    pull_policy: always
+    user: "${LILVAULT_UID:-568}:${LILVAULT_GID:-568}"
     restart: unless-stopped
     init: true
+    depends_on:
+      initialize:
+        condition: service_completed_successfully
+    command: [/etc/lilvault/gateway.generated.toml]
     stop_grace_period: 45s
     read_only: true
     cap_drop: [ALL]
@@ -20,16 +53,16 @@ services:
       LILVAULT_SECOND_AGENT_TOKEN: "${LILVAULT_SECOND_AGENT_TOKEN:-}"
     volumes:
       - type: bind
-        source: "${LILVAULT_ROOT:?Set the stack root}/config/gateway.toml"
-        target: /etc/lilvault/config.toml
+        source: "${LILVAULT_ROOT}/config"
+        target: /etc/lilvault
         read_only: true
         bind:
-          create_host_path: false
+          create_host_path: true
       - type: bind
         source: "${LILVAULT_ROOT}/vaults"
         target: /data/vaults
         bind:
-          create_host_path: false
+          create_host_path: true
     logging:
       driver: local
       options:
@@ -37,31 +70,41 @@ services:
         max-file: "3"
 
   sync:
-    image: lilvault-sync:0.0.14-node26.13.0
-    pull_policy: never
-    user: "${LILVAULT_UID:-1000}:${LILVAULT_GID:-1000}"
+    image: ghcr.io/lilco-dev/lilvault-sync:${LILVAULT_IMAGE_TAG:-latest}
+    pull_policy: always
+    user: "${LILVAULT_UID:-568}:${LILVAULT_GID:-568}"
     restart: unless-stopped
     init: true
+    depends_on:
+      initialize:
+        condition: service_completed_successfully
     stop_grace_period: 30s
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
-    command: [sync, --path, /vaults/agents, --continuous]
     volumes:
       - type: bind
         source: "${LILVAULT_ROOT}/vaults/agents"
         target: /vaults/agents
         bind:
-          create_host_path: false
+          create_host_path: true
       - type: bind
         source: "${LILVAULT_ROOT}/sync-auth"
         target: /home/node
         bind:
-          create_host_path: false
+          create_host_path: true
+      - type: volume
+        source: headless-runtime
+        target: /opt/obsidian
+        volume:
+          nocopy: true
     logging:
       driver: local
       options:
         max-size: 10m
         max-file: "3"
+
+volumes:
+  headless-runtime:
