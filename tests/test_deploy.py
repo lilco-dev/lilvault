@@ -75,7 +75,8 @@ class ComposeTests(unittest.TestCase):
                     self.assertTrue(volume["volume"]["nocopy"])
         self.assertIn("/home/node", {v["target"] for v in services["sync"]["volumes"]})
         self.assertIn("/opt/obsidian", {v["target"] for v in services["sync"]["volumes"]})
-        self.assertFalse(services["initialize"]["volumes"][0]["bind"]["create_host_path"])
+        stack = next(v for v in services["initialize"]["volumes"] if v["target"] == "/stack")
+        self.assertFalse(stack.get("bind", {}).get("create_host_path", False))
 
     def test_overrides_and_optional_agent_do_not_leak_secrets_to_initializer(self):
         services = json.loads(self.render(LILVAULT_UID="3000", LILVAULT_GID="3001",
