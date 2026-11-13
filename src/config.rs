@@ -6,8 +6,18 @@ use std::{net::SocketAddr, path::PathBuf};
 pub struct Config {
     #[serde(default)]
     pub server: Server,
+    #[serde(default)]
+    pub auth: Auth,
     pub vaults: Vec<Vault>,
+    #[serde(default)]
     pub agents: Vec<Agent>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Auth {
+    /// Directory of `<agent>.token` / `<agent>.ro.token` files, like authorized_keys.
+    pub keys_dir: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]

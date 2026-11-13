@@ -5,7 +5,6 @@ umask 077
 uid=${LILVAULT_UID:-568}
 gid=${LILVAULT_GID:-568}
 host=${LILVAULT_MCP_HOST:-}
-second=${LILVAULT_ENABLE_SECOND_AGENT:-}
 
 for number in "$uid" "$gid"; do
     case "$number" in ''|*[!0-9]*) echo 'App UID/GID must be numeric.' >&2; exit 1 ;; esac
@@ -16,9 +15,8 @@ for number in "$uid" "$gid"; do
 done
 # shortcut: use a DNS/IPv4 authority here; custom bracketed IPv6 needs custom TOML.
 case "$host" in *[!a-zA-Z0-9.:-]*) echo 'MCP host must be a plain host[:port], not a URL.' >&2; exit 1 ;; esac
-case "$second" in ''|1) ;; *) echo 'Invalid secondary-agent setting.' >&2; exit 1 ;; esac
 
-for directory in /stack /stack/config /stack/vaults /stack/vaults/agents /stack/sync-auth /runtime; do
+for directory in /stack /stack/config /stack/agents /stack/vaults /stack/vaults/agents /stack/sync-auth /runtime; do
     if [ -L "$directory" ] || { [ -e "$directory" ] && [ ! -d "$directory" ]; }; then
         echo 'Refusing a symlink or non-directory in the stack layout.' >&2
         exit 1
@@ -55,10 +53,7 @@ trap 'exit 1' HUP INT TERM
         printf 'mcp_allowed_hosts = ["localhost", "127.0.0.1", "::1"]\n'
     fi
     printf '\n[[vaults]]\nid = "agents"\npath = "/data/vaults/agents"\nenabled = true\n'
-    printf '\n[[agents]]\nname = "hermes"\ntoken_env = "LILVAULT_HERMES_TOKEN"\npermissions = ["agents:read-write"]\n'
-    if [ "$second" = 1 ]; then
-        printf '\n[[agents]]\nname = "secondary"\ntoken_env = "LILVAULT_SECOND_AGENT_TOKEN"\npermissions = ["agents:read-write"]\n'
-    fi
+    printf '\n[auth]\nkeys_dir = "/agents"\n'
 } > "$temporary"
 chown "$uid:$gid" "$temporary"
 chmod 0600 "$temporary"

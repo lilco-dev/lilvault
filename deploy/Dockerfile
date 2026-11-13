@@ -14,7 +14,8 @@ RUN apt-get update \
     && useradd --uid 1000 --gid 1000 --no-create-home --home-dir /nonexistent lilvault
 COPY --from=build /build/target/release/lilvault /usr/local/bin/lilvault
 COPY deploy/initialize.sh /usr/local/bin/lilvault-init
-RUN chmod 0755 /usr/local/bin/lilvault-init
+COPY deploy/add-agent.sh /usr/local/bin/lilvault-add-agent
+RUN chmod 0755 /usr/local/bin/lilvault-init /usr/local/bin/lilvault-add-agent
 USER 1000:1000
 ENV RUST_LOG=info
 EXPOSE 8737

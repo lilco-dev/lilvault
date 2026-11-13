@@ -1,5 +1,5 @@
 use lilvault::{
-    config::{Agent, Config, Server, Vault},
+    config::{Agent, Auth, Config, Server, Vault},
     service::Service,
 };
 use std::{fs, os::unix::fs::symlink, path::Path};
@@ -7,6 +7,7 @@ use std::{fs, os::unix::fs::symlink, path::Path};
 fn config(path: &Path) -> Config {
     Config {
         server: Server::default(),
+        auth: Auth::default(),
         vaults: vec![Vault {
             id: "a".into(),
             path: path.to_path_buf(),
@@ -176,4 +177,85 @@ fn symlinked_roots_are_rejected_and_default_binding_is_loopback() {
     assert!(service.listen.ip().is_loopback());
     assert!(service.authenticate(&"ab".repeat(32)).is_some());
     assert!(service.authenticate("bad").is_none());
+}
+
+fn keys_config(vault: &Path, keys: &Path) -> Config {
+    let mut c = config(vault);
+    c.agents.clear();
+    c.auth.keys_dir = Some(keys.to_path_buf());
+    c
+}
+
+#[test]
+fn agent_keys_are_loaded_from_file_names_with_read_only_suffix() {
+    use lilvault::service::Access;
+    let vault = tempfile::tempdir().unwrap();
+    let keys = tempfile::tempdir().unwrap();
+    let service = Service::from_config(keys_config(vault.path(), keys.path()), |_| None).unwrap();
+    assert!(service.authenticate(&"ab".repeat(32)).is_none());
+    assert!(service.ready());
+
+    fs::write(keys.path().join("writer.token"), "ab".repeat(32)).unwrap();
+    fs::write(keys.path().join("reader.ro.token"), "cd".repeat(32)).unwrap();
+    let service = Service::from_config(keys_config(vault.path(), keys.path()), |_| None).unwrap();
+    let access = |token: &str| {
+        let agent = service
+            .authenticate(token)
+            .expect("key should authenticate");
+        service.list_vaults(&agent)[0].access
+    };
+    assert_eq!(access(&"ab".repeat(32)), Access::ReadWrite);
+    assert_eq!(access(&"cd".repeat(32)), Access::Read);
+    assert!(service.authenticate("bad").is_none());
+}
+
+#[test]
+fn agent_key_directory_rejects_unsafe_malformed_or_ambiguous_entries() {
+    let vault = tempfile::tempdir().unwrap();
+    let keys = tempfile::tempdir().unwrap();
+    let entry = |name: &str, content: &str| {
+        fs::write(keys.path().join(name), content).unwrap();
+        let rejected =
+            Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err();
+        fs::remove_file(keys.path().join(name)).unwrap();
+        assert!(rejected, "{name} was accepted");
+    };
+    entry("bad name!.token", &"ab".repeat(32));
+    entry("notes.md", &"ab".repeat(32));
+    entry("short.token", "abc");
+    entry("nonalpha.token", &"zz".repeat(32));
+    entry("oversized.token", &("ab".repeat(32) + &"cd".repeat(40)));
+
+    fs::write(keys.path().join("dup.token"), "ab".repeat(32)).unwrap();
+    fs::write(keys.path().join("dup.ro.token"), "cd".repeat(32)).unwrap();
+    assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
+    fs::remove_file(keys.path().join("dup.ro.token")).unwrap();
+    fs::remove_file(keys.path().join("dup.token")).unwrap();
+
+    fs::create_dir(keys.path().join("sub.token")).unwrap();
+    assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
+    fs::remove_dir(keys.path().join("sub.token")).unwrap();
+
+    symlink(vault.path().join("note.md"), keys.path().join("link.token")).unwrap();
+    assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
+    fs::remove_file(keys.path().join("link.token")).unwrap();
+
+    fs::write(vault.path().join("keys.txt"), "ab".repeat(32)).unwrap();
+    let file_keys = keys_config(vault.path(), &vault.path().join("keys.txt"));
+    assert!(Service::from_config(file_keys, |_| None).is_err());
+    let missing = keys_config(vault.path(), &vault.path().join("missing"));
+    assert!(Service::from_config(missing, |_| None).is_err());
+}
+
+#[test]
+fn agent_key_directory_cannot_be_combined_with_explicit_entries() {
+    let vault = tempfile::tempdir().unwrap();
+    let keys = tempfile::tempdir().unwrap();
+    let mut c = keys_config(vault.path(), keys.path());
+    c.agents.push(Agent {
+        name: "agent".into(),
+        token_env: "TOKEN".into(),
+        permissions: vec!["a:read".into()],
+    });
+    assert!(Service::from_config(c, |_| Some("ab".repeat(32))).is_err());
 }

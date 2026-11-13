@@ -24,16 +24,16 @@ Requires Linux with `openat2` (kernel 5.6+) and Rust 1.88+. Start with an existi
 
 ```sh
 cp config.example.toml config.toml
-# Edit config.toml: set the vault path to your existing absolute directory.
+mkdir -p keys && openssl rand -hex 32 > keys/hermes.token
+# Edit config.toml: set the vault path and [auth] keys_dir to your absolute paths.
 # Keep the loopback listen address unless a secure transport is approved.
-export LILVAULT_HERMES_TOKEN="$(openssl rand -hex 32)"
 cargo run -- config.toml
 ```
 
-The server reads exported environment variables, not `.env` files. In another terminal with the same token available:
+Agents are key files, like ssh `authorized_keys`: `<name>.token` grants read-write on every enabled vault, and `<name>.ro.token` grants read only. Start the server before adding keys if you prefer: an empty key directory starts and denies every request until a key exists. In another terminal:
 
 ```sh
-curl -H "Authorization: Bearer $LILVAULT_HERMES_TOKEN" \
+curl -H "Authorization: Bearer $(cat keys/hermes.token)" \
   http://127.0.0.1:8737/v1/vaults
 ```
 
@@ -48,6 +48,18 @@ cargo test --all-targets
 ## Docker / NAS / Portainer
 
 Create a dedicated dataset, paste [deploy/compose.yaml](deploy/compose.yaml) into Portainer, set private variables, and pull the published GHCR images. A bounded one-shot initializer creates the layout/config; the long-running services use TrueNAS's `apps` UID/GID **568:568** by default and restart automatically. The public Sync runner downloads the pinned official client on first start rather than redistributing proprietary software. See [Portainer setup, image tags, and one-time Obsidian login](docs/PORTAINER.md). Preparing the stack does not migrate or stop an existing instance.
+
+## Add an agent
+
+Agent credentials are key files, one per agent, like ssh `authorized_keys`. In the running gateway container:
+
+```sh
+docker exec -it <gateway-container> lilvault-add-agent claude            # read-write
+docker exec -it <gateway-container> lilvault-add-agent claude --read-only
+docker restart <gateway-container>                                      # loads the new key
+```
+
+The tool prompts for one token, so generate it somewhere private (`openssl rand -hex 32`) and paste it. The file name is the agent name: `<name>.token` (read-write) or `<name>.ro.token` (read-only). Keys grant access to every enabled vault. Malformed, symlinked, oversized, or duplicate key files stop startup rather than silently denying access; an empty directory starts and denies every request until a key is added. See [docs/PORTAINER.md](docs/PORTAINER.md#manage-agent-keys).
 
 ## Activate Obsidian Sync (one-time, required)
 

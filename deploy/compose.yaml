@@ -16,7 +16,6 @@ services:
       LILVAULT_UID: "${LILVAULT_UID:-568}"
       LILVAULT_GID: "${LILVAULT_GID:-568}"
       LILVAULT_MCP_HOST: "${LILVAULT_MCP_HOST:-}"
-      LILVAULT_ENABLE_SECOND_AGENT: "${LILVAULT_SECOND_AGENT_TOKEN:+1}"
     volumes:
       - type: bind
         source: "${LILVAULT_ROOT:?Set the stack dataset mountpoint}"
@@ -49,13 +48,17 @@ services:
       - "127.0.0.1:8737:8737"
     environment:
       RUST_LOG: info
-      LILVAULT_HERMES_TOKEN: "${LILVAULT_HERMES_TOKEN:?Set the agent token}"
-      LILVAULT_SECOND_AGENT_TOKEN: "${LILVAULT_SECOND_AGENT_TOKEN:-}"
     volumes:
       - type: bind
         source: "${LILVAULT_ROOT}/config"
         target: /etc/lilvault
         read_only: true
+        bind:
+          create_host_path: true
+      # Agent keys: exec lilvault-add-agent <name> in this container.
+      - type: bind
+        source: "${LILVAULT_ROOT}/agents"
+        target: /agents
         bind:
           create_host_path: true
       - type: bind

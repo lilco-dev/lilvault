@@ -61,6 +61,8 @@
 ## M4 — Release packaging
 - [ ] Finalize Dockerfiles, Compose, .env/config examples.
   - App-owned automatic initialization (TrueNAS apps 568:568), generated config, and public GHCR gateway/Sync-runner publishing are implemented. The proprietary official client is installed only at runtime into a separate versioned cache. All 19 Python tests (including five real-Docker tests) and 25 Rust tests pass locally; fmt/Clippy also pass on the declared Rust 1.88 toolchain. Initialization/idempotence, unsafe inputs, context secret exclusion, MCP writes, offline cache reuse, and pre-login console access are verified. First GHCR package visibility and actual NAS/HTTPS migration still require acceptance. See [docs/PORTAINER.md](docs/PORTAINER.md).
+- [ ] Provision agents without redeploying or rebuilding images.
+  - Agent credentials are now `authorized_keys`-style files in `agents/`: `<name>.token` (read-write) or `<name>.ro.token` (read-only), scoped to all enabled vaults. The stack no longer carries tokens in environment variables. `lilvault-add-agent <name>` in the gateway image adds one after a prompt-only token entry; a gateway restart loads it. Startup fails closed on symlinks, directories, bad names/content, and duplicate agents, while an empty directory starts deny-all. Verified by 3 new Rust tests and a real-container add/restart/authorize flow. See [Manage agent keys](docs/PORTAINER.md#manage-agent-keys).
 - [ ] Add provisioning and backup/recovery instructions.
 - [ ] Add README quickstart and operational troubleshooting.
 - [ ] Verify clean install on a disposable directory.

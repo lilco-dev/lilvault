@@ -9,7 +9,14 @@ id = "test"
 path = "/absolute/path/to/disposable/vault"
 enabled = true
 
-[[agents]]
-name = "hermes"
-token_env = "LILVAULT_HERMES_TOKEN"
-permissions = ["test:read-write"]
+# Agent credentials: either a key directory (like ssh authorized_keys, and what the
+# container stack uses) or explicit entries with tokens from the environment.
+# Key files are named <agent>.token (read-write) or <agent>.ro.token (read-only) and
+# each holds one 64-hex-character token; permissions cover all enabled vaults.
+[auth]
+keys_dir = "/absolute/path/to/agent-keys"
+
+# [[agents]]
+# name = "hermes"
+# token_env = "LILVAULT_HERMES_TOKEN"
+# permissions = ["test:read-write"]

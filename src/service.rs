@@ -13,7 +13,7 @@ use std::{
 };
 use subtle::ConstantTimeEq;
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Access {
     Read,
@@ -62,6 +62,64 @@ fn digest(value: &str) -> [u8; 32] {
     Sha256::digest(value.as_bytes()).into()
 }
 
+/// Loads `authorized_keys`-style credentials: one `<name>.token` (read-write) or
+/// `<name>.ro.token` (read-only) file per agent, scoped to every enabled vault.
+fn load_keys<'a>(
+    dir: &std::path::Path,
+    vault_ids: impl Iterator<Item = &'a String>,
+) -> Result<Vec<(String, String, Vec<String>)>, ConfigError> {
+    let metadata = std::fs::symlink_metadata(dir)
+        .map_err(|_| ConfigError("agent key directory is inaccessible"))?;
+    if !metadata.is_dir() {
+        return Err(ConfigError("agent key directory must be a real directory"));
+    }
+    let vault_ids: Vec<&String> = vault_ids.collect();
+    let mut entries = Vec::new();
+    for entry in
+        std::fs::read_dir(dir).map_err(|_| ConfigError("agent key directory is unreadable"))?
+    {
+        let entry = entry.map_err(|_| ConfigError("agent key directory is unreadable"))?;
+        let file_name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| ConfigError("agent key file names must be UTF-8"))?;
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|_| ConfigError("agent key file is inaccessible"))?;
+        if !metadata.is_file() {
+            return Err(ConfigError(
+                "agent key entries must be regular files, not symlinks or directories",
+            ));
+        }
+        if metadata.len() > 128 {
+            return Err(ConfigError(
+                "agent key files must hold one 64-character token",
+            ));
+        }
+        let stem = file_name.strip_suffix(".token").ok_or(ConfigError(
+            "agent key files must be named <agent>.token or <agent>.ro.token",
+        ))?;
+        let (name, access) = match stem.strip_suffix(".ro") {
+            Some(name) => (name, "read"),
+            None => (stem, "read-write"),
+        };
+        let bytes =
+            std::fs::read(&path).map_err(|_| ConfigError("agent key file is unreadable"))?;
+        let token = std::str::from_utf8(&bytes)
+            .map_err(|_| ConfigError("agent key files must be UTF-8"))?
+            .trim();
+        entries.push((
+            name.to_owned(),
+            token.to_owned(),
+            vault_ids
+                .iter()
+                .map(|id| format!("{id}:{access}"))
+                .collect(),
+        ));
+    }
+    Ok(entries)
+}
+
 impl Service {
     pub fn from_config(
         config: Config,
@@ -79,9 +137,10 @@ impl Service {
                 "mcp_allowed_hosts must contain explicit hostnames/IP authorities, not wildcard hosts, URLs, or whitespace",
             ));
         }
-        if config.vaults.is_empty() || config.agents.is_empty() {
+        if config.vaults.is_empty() || (config.agents.is_empty() && config.auth.keys_dir.is_none())
+        {
             return Err(ConfigError(
-                "at least one enabled vault and one agent are required",
+                "at least one enabled vault and one agent key source are required",
             ));
         }
         let mut ids = HashSet::new();
@@ -137,24 +196,43 @@ impl Service {
         let mut names = HashSet::new();
         let mut digests = HashSet::new();
         let mut credentials = Vec::new();
-        for agent in config.agents {
-            if !identifier(&agent.name) || !names.insert(agent.name) {
-                return Err(ConfigError("agent names must be valid unique identifiers"));
-            }
-            if agent.token_env.is_empty()
-                || agent.token_env.len() > 128
-                || !agent
-                    .token_env
-                    .bytes()
-                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-            {
+        let entries = if let Some(dir) = config.auth.keys_dir {
+            if !config.agents.is_empty() {
                 return Err(ConfigError(
-                    "token_env must name an uppercase environment variable",
+                    "an agent key directory cannot be combined with explicit agent entries",
                 ));
             }
-            let token = secret(&agent.token_env).ok_or(ConfigError(
-                "a configured agent bearer environment variable is missing",
-            ))?;
+            load_keys(&dir, vaults.keys())?
+        } else {
+            config
+                .agents
+                .into_iter()
+                .map(|agent| {
+                    if agent.token_env.is_empty()
+                        || agent.token_env.len() > 128
+                        || !agent
+                            .token_env
+                            .bytes()
+                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                    {
+                        return Err(ConfigError(
+                            "token_env must name an uppercase environment variable",
+                        ));
+                    }
+                    let token = secret(&agent.token_env).ok_or(ConfigError(
+                        "a configured agent bearer environment variable is missing",
+                    ))?;
+                    Ok((agent.name, token, agent.permissions))
+                })
+                .collect::<Result<Vec<_>, ConfigError>>()?
+        };
+        if entries.is_empty() {
+            tracing::warn!("no agent keys loaded; every request is denied until a key is added");
+        }
+        for (name, token, permissions) in entries {
+            if !identifier(&name) || !names.insert(name) {
+                return Err(ConfigError("agent names must be valid unique identifiers"));
+            }
             if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return Err(ConfigError(
                     "each bearer token must be 32 random bytes encoded as 64 hex characters; generate with openssl rand -hex 32",
@@ -164,12 +242,9 @@ impl Service {
             if !digests.insert(digest) {
                 return Err(ConfigError("agent bearer tokens must be distinct"));
             }
-            let mut permissions = HashMap::new();
-            if agent.permissions.is_empty() {
-                return Err(ConfigError("each agent requires at least one permission"));
-            }
-            for permission in agent.permissions {
-                let (vault, access) = permission.split_once(':').ok_or(ConfigError(
+            let mut access = HashMap::new();
+            for permission in permissions {
+                let (vault, level) = permission.split_once(':').ok_or(ConfigError(
                     "permissions must be vault:read or vault:read-write",
                 ))?;
                 if !vaults.contains_key(vault) {
@@ -177,7 +252,7 @@ impl Service {
                         "permissions refer to an unknown or disabled vault",
                     ));
                 }
-                let access = match access {
+                let level = match level {
                     "read" => Access::Read,
                     "read-write" => Access::ReadWrite,
                     _ => {
@@ -186,13 +261,18 @@ impl Service {
                         ));
                     }
                 };
-                if permissions.insert(vault.to_owned(), access).is_some() {
+                if access.insert(vault.to_owned(), level).is_some() {
                     return Err(ConfigError("duplicate vault permission for an agent"));
                 }
             }
+            if access.is_empty() {
+                return Err(ConfigError("each agent requires at least one permission"));
+            }
             credentials.push(Credential {
                 digest,
-                agent: Agent { permissions },
+                agent: Agent {
+                    permissions: access,
+                },
             });
         }
         Ok(Self {

@@ -6,14 +6,9 @@ Linux with `openat2` support is required (kernel 5.6+); unsupported kernels fail
 
 Copy `config.example.toml` to ignored `config.toml`. Set an **existing, absolute, non-symlink disposable vault directory**, and keep `127.0.0.1:8737` unless approved transport is configured. No directories are created by the API. Enabled vault roots must not overlap or alias each other. Unknown fields, duplicate identifiers, inaccessible roots, malformed permissions, missing/invalid secrets, duplicate secrets, and references to disabled/unknown vaults prevent startup.
 
-Tokens must be 32 cryptographically random bytes encoded as 64 hexadecimal characters. The server validates representation/length, not randomness; use a generator, never a human password. It stores SHA-256 digests for comparison and never logs token values. Generate and export a token without printing it:
+Tokens must be 32 cryptographically random bytes encoded as 64 hexadecimal characters. The server validates representation/length, not randomness; use a generator, never a human password. It stores SHA-256 digests for comparison and never logs token values.
 
-```sh
-export LILVAULT_HERMES_TOKEN="$(openssl rand -hex 32)"
-cargo run -- config.toml
-```
-
-The server does **not** load `.env` automatically. `token_env` names must use uppercase ASCII letters, digits, and underscores. Permission strings are exactly `vault-id:read` or `vault-id:read-write`; an agent must have at least one. Vault IDs and agent names use 1–64 ASCII letters/digits/underscore/hyphen. `enabled` defaults to true; the server listen address defaults to loopback port 8737. No secret is accepted inline in TOML. Config errors intentionally omit TOML excerpts to avoid echoing accidentally inlined credentials.
+Two credential sources exist and cannot be combined. `[auth] keys_dir` loads one file per agent: `<name>.token` grants read-write on all enabled vaults and `<name>.ro.token` grants read; each file holds one token. Entries are loaded at startup, so adding or rotating a key requires a restart. An empty key directory starts and denies every request. Anything that is not a regular 0600-style file of one 64-hex token — symlinks, directories, other names, duplicate names, oversized content — fails startup. Alternatively, `[[agents]]` entries read tokens from `token_env` variables; those names must use uppercase ASCII letters, digits, and underscores, and the server does **not** load `.env` automatically. Permission strings are exactly `vault-id:read` or `vault-id:read-write`; an agent must have at least one. Vault IDs and agent names use 1–64 ASCII letters/digits/underscore/hyphen. `enabled` defaults to true; the server listen address defaults to loopback port 8737. No secret is accepted inline in TOML. Config errors intentionally omit TOML excerpts to avoid echoing accidentally inlined credentials.
 
 ## Routes
 
