@@ -1,22 +1,28 @@
 # lilvault
 
-A self-hosted gateway exposing existing Obsidian Sync vaults to remote AI agents over MCP Streamable HTTP, with a small REST API for diagnostics and automation.
+A self-hostable gateway that exposes your existing Obsidian Sync vaults to AI agents over MCP (Streamable HTTP), with a small REST API for diagnostics and automation. Agents never need Obsidian installed or a local vault copy.
 
-**Status: deployed in production on the NAS — Hermes and other agents reach all seven MCP tools over a private HTTPS route. Sync supervision and release polish (M3/M4 leftovers) remain.**
+**Status: feature-complete for v0.1 — all seven MCP tools, Docker deployment, and agent key management are implemented and covered by the test suite. Sync health monitoring and release packaging polish remain before a tagged 1.0.**
 
-## Progress
+## What you get
 
-M0 verified official Obsidian Headless in Docker on a Linux deployment host: real desktop round trips, two isolated vaults, container recreation, external atomic writes, bounded offline recovery, and observed conflict behavior. M1 added fail-closed configuration, vault-scoped bearer authentication, Linux descriptor-relative Markdown operations, conditional writes, and a REST API. M2 added the MCP transport through the official Rust SDK's stateless Streamable HTTP server, and M3 completed the tool set — `list_vaults`, `list_files`, `read_file`, `write_file`, `delete_file`, `search_files`, `get_vault_status`. Deployment runs on a NAS through Portainer with auto-initialized storage, GHCR images, `authorized_keys`-style agent credentials, and a reverse-proxied private HTTPS route; Hermes is connected and reading/writing through it. See [M0 findings](docs/M0-FINDINGS.md), the [REST contract](docs/API.md), the [MCP contract](docs/MCP.md), and [NAS deployment](docs/PORTAINER.md).
+- **Seven MCP tools**: `list_vaults`, `list_files`, `read_file`, `write_file`, `delete_file`, `search_files`, `get_vault_status` — plus matching REST endpoints under `/v1` for debugging and automation.
+- **Your vault, unchanged**: the official Obsidian Headless client syncs bidirectionally with your existing Obsidian Sync subscription. The gateway only reads and writes local files; it never reverse-engineers the sync protocol.
+- **Safe by default**: fail-closed configuration, vault-scoped bearer credentials, Linux descriptor-relative path operations (no traversal or symlink escapes), conditional writes and deletes with SHA-256 revision ETags, and size/deadline limits everywhere.
+- **ssh-style agent credentials**: one key file per agent (`<name>.token` for read-write, `<name>.ro.token` for read-only), added with a single `lilvault-add-agent` command — no secrets in environment variables or images.
+- **Honest consistency**: write success means the local filesystem accepted it, never a claim of cloud synchronization; status reports `unknown` for cloud state the gateway cannot observe.
+
+See the [MCP contract](docs/MCP.md) for the tool reference, the [REST contract](docs/API.md) for routes and filesystem guarantees, and [SPEC.md](SPEC.md) for scope and design decisions.
 
 The intended flow is:
 
 ```text
-Hermes → authenticated MCP over approved HTTPS/private transport
-       → Rust gateway → local vault files → official Obsidian Headless
-       → Obsidian Sync → Obsidian client
+Agent → authenticated MCP over your private HTTPS route
+      → Rust gateway → local vault files → official Obsidian Headless
+      → Obsidian Sync → your Obsidian clients
 ```
 
-A successful local write will not imply cloud synchronization. Obsidian credentials must remain isolated from the gateway. M0 also found that Headless's default merge can discard one competing edit while reporting success; see the findings log before using real notes.
+A successful local write does not imply cloud synchronization. Obsidian credentials remain isolated from the gateway. Note that Headless's default merge can discard a competing edit while reporting success; see the [Headless findings](docs/HEADLESS-FINDINGS.md) before using important notes.
 
 ## Run the gateway locally
 
@@ -24,7 +30,7 @@ Requires Linux with `openat2` (kernel 5.6+) and Rust 1.88+. Start with an existi
 
 ```sh
 cp config.example.toml config.toml
-mkdir -p keys && openssl rand -hex 32 > keys/hermes.token
+mkdir -p keys && openssl rand -hex 32 > keys/my-agent.token
 # Edit config.toml: set the vault path and [auth] keys_dir to your absolute paths.
 # Keep the loopback listen address unless a secure transport is approved.
 cargo run -- config.toml
@@ -33,7 +39,7 @@ cargo run -- config.toml
 Agents are key files, like ssh `authorized_keys`: `<name>.token` grants read-write on every enabled vault, and `<name>.ro.token` grants read only. Start the server before adding keys if you prefer: an empty key directory starts and denies every request until a key exists. In another terminal:
 
 ```sh
-curl -H "Authorization: Bearer $(cat keys/hermes.token)" \
+curl -H "Authorization: Bearer $(cat keys/my-agent.token)" \
   http://127.0.0.1:8737/v1/vaults
 ```
 
@@ -45,9 +51,9 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 ```
 
-## Docker / NAS / Portainer
+## Docker / Compose / Portainer
 
-Create a dedicated dataset, paste [deploy/compose.yaml](deploy/compose.yaml) into Portainer, set private variables, and pull the published GHCR images. A bounded one-shot initializer creates the layout/config; the long-running services use TrueNAS's `apps` UID/GID **568:568** by default and restart automatically. The public Sync runner downloads the pinned official client on first start rather than redistributing proprietary software. See [Portainer setup, image tags, and one-time Obsidian login](docs/PORTAINER.md). Preparing the stack does not migrate or stop an existing instance.
+Create a dedicated directory or dataset, paste [deploy/compose.yaml](deploy/compose.yaml) into Portainer (or run `docker compose up`), set private variables, and pull the published GHCR images. A bounded one-shot initializer creates the layout/config; the long-running services run as a non-root app user and restart automatically. The public Sync image downloads the pinned official Headless client on first start rather than redistributing proprietary software. See [deployment, image tags, and the one-time Obsidian login](docs/PORTAINER.md).
 
 ## Add an agent
 
@@ -77,19 +83,15 @@ That one-time step creates the credentials in `sync-auth`, which only the Sync c
 
 Use `./scripts/lilvault tools` or `./scripts/lilvault call <tool> '<json-args>'` for immediate MCP access without waiting for an agent's discovery refresh. Requires Python 3 and a credential supplied through `LILVAULT_TOKEN` or `LILVAULT_TOKEN_FILE`; no extra Python packages. See [CLI usage and tests](docs/CLI.md).
 
-## Project documents
+## Documentation
 
-- [SPEC.md](SPEC.md): scope, fixed decisions, security requirements, and acceptance criteria.
-- [TASKS.md](TASKS.md): milestone checklist and current blockers.
-- [AGENT_PROMPT.md](AGENT_PROMPT.md): kickoff instructions.
-- [docs/M0-FINDINGS.md](docs/M0-FINDINGS.md): Headless research and real sync verification.
-- [docs/API.md](docs/API.md): REST usage, configuration, filesystem guarantees, and limits.
-- [docs/CLI.md](docs/CLI.md): standalone MCP command-line client and credential configuration.
-- [docs/M1-FINDINGS.md](docs/M1-FINDINGS.md): REST implementation scope and verification evidence.
-- [docs/MCP.md](docs/MCP.md): MCP URL, tools, authentication, Host/Origin policy, and limits.
-- [docs/M2-FINDINGS.md](docs/M2-FINDINGS.md): local SDK-client verification and remote demo prerequisites.
-- [docs/TAILNET.md](docs/TAILNET.md): approved private HTTPS route, credential handling, and pending Hermes setup.
-- [docs/PORTAINER.md](docs/PORTAINER.md): Docker images, dataset permissions, Portainer variables, and migration gates.
+- [Deployment guide](docs/PORTAINER.md): Docker/Portainer setup, storage permissions, image tags, agent keys, Obsidian login, upgrades, and recovery.
+- [MCP tools](docs/MCP.md): endpoint, authentication, all seven tools, input schemas, results, and limits.
+- [REST API](docs/API.md): routes, configuration, filesystem guarantees, revisions, and errors.
+- [Command-line client](docs/CLI.md): call MCP tools from a shell without extra packages.
+- [Headless findings](docs/HEADLESS-FINDINGS.md): tested behavior of the official Obsidian client, including sync, restart, offline, and conflict observations.
+- [Specification](SPEC.md): full scope, security requirements, and design decisions.
+- [Development tasks](TASKS.md): maintainer checklist and remaining work.
 
 ## Development guardrails
 
@@ -100,4 +102,4 @@ Use `./scripts/lilvault tools` or `./scripts/lilvault call <tool> '<json-args>'`
 - The gateway must never mount the sync credential home or Docker socket.
 - Back up real vaults; gateway locks do not serialize against external Headless writes.
 
-MCP is available at `/mcp` on the same listener with the same bearer credential. Its default Host allowlist is loopback-only and browser Origins are denied; production deployments add the approved proxy authority with `LILVAULT_MCP_HOST`. Write and delete results report local filesystem success, never cloud synchronization — the gateway cannot observe the sync process, so status honestly reports `unknown`.
+The intended MCP endpoint is `POST /mcp` on the same listener, authenticated with an agent key's bearer token. The default Host allowlist is loopback-only and browser Origins are denied; behind a reverse proxy, set `LILVAULT_MCP_HOST` to your approved HTTPS authority. Never expose MCP on a public hostname — put it behind a private route you control.
