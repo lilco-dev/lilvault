@@ -23,7 +23,7 @@ This is an illustrative hostname, not a provisioned endpoint. Wildcards, URLs, a
 | Tool | Arguments | Structured result |
 |---|---|---|
 | `list_vaults` | `{}` | `vaults`: authorized IDs and `read`/`read-write` access |
-| `list_files` | `vault_id`, optional `path` (root by default) | `files`: immediate visible Markdown files/directories, path/type/size |
+| `list_files` | `vault_id`, optional `path` (root by default: omit `path` or pass an empty string; `"/"` is rejected) | `files`: immediate visible Markdown files/directories, path/type/size |
 | `read_file` | `vault_id`, `path` | `content`, unquoted SHA-256 `revision` |
 | `write_file` | `vault_id`, `path`, `content`, **either** `create_only: true` **or** `expected_revision` | `revision`, `local_write: true`, `cloud_sync: "unknown"` |
 
