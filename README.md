@@ -49,6 +49,18 @@ cargo test --all-targets
 
 Create a dedicated dataset, paste [deploy/compose.yaml](deploy/compose.yaml) into Portainer, set private variables, and pull the published GHCR images. A bounded one-shot initializer creates the layout/config; the long-running services use TrueNAS's `apps` UID/GID **568:568** by default and restart automatically. The public Sync runner downloads the pinned official client on first start rather than redistributing proprietary software. See [Portainer setup, image tags, and one-time Obsidian login](docs/PORTAINER.md). Preparing the stack does not migrate or stop an existing instance.
 
+## Activate Obsidian Sync (one-time, required)
+
+The gateway returns no notes until Obsidian login happens, and login cannot be scripted. After the stack is up, the Sync container logs **`Waiting for setup`**; open its console in Portainer and run:
+
+```sh
+ob login                                             # account + 2FA at prompts
+ob sync-list-remote                                  # exact remote vault name
+ob sync-setup --vault agents --path /vaults/agents   # encryption password at prompt
+```
+
+That one-time step creates the credentials in `sync-auth`, which only the Sync container sees. Sync then starts automatically. Full steps, including the app-user console requirement and the desktop round-trip check, are in [docs/PORTAINER.md](docs/PORTAINER.md#activate-obsidian-sync-one-time-required).
+
 ## Command-line client
 
 Use `./scripts/lilvault tools` or `./scripts/lilvault call <tool> '<json-args>'` for immediate MCP access without waiting for an agent's discovery refresh. Requires Python 3 and a credential supplied through `LILVAULT_TOKEN` or `LILVAULT_TOKEN_FILE`; no extra Python packages. See [CLI usage and tests](docs/CLI.md).

@@ -52,15 +52,28 @@ The official npm package is marked **`UNLICENSED`**. Public availability is not 
 
 Downloaded software lives in a Docker-managed `headless-runtime` volume, separate from notes and credentials. Installation is locked and version/platform-specific; a completion marker is written only after successful installation. Restarts reuse it without npm access, and interrupted installs are retried. No credentials or downloaded proprietary packages are baked into GHCR images. First bootstrap needs outbound npm access; actual Sync needs its normal network access.
 
-Without a registered local vault the Sync container stays running and reports **Waiting for setup**, so its Portainer console remains available. Open `/bin/sh` in that container **as the app user**, then use the official interactive commands:
+## Activate Obsidian Sync (one-time, required)
+
+The gateway will not return notes until this is done. Until then the Sync container stays running, logs **`Waiting for setup`**, and serves nothing but its own console.
+
+**What the operator must do:**
+
+1. Wait for the `initialize` container to exit **0**, then open the **Sync** container console in Portainer. If it offers a choice, choose **`/bin/sh`**; it must be the app user (`568:568`), not root.
+2. In that console run `ob login`. Enter the Obsidian account email/password and any 2FA code **at the prompts**.
+3. Run `ob sync-list-remote` and note the exact name of the vault you want. The stack expects it to be `agents`.
+4. Register it: `ob sync-setup --vault agents --path /vaults/agents` (substitute the real vault name from step 3 if it differs). Enter the vault **encryption password** at the prompt.
+5. Exit the console. The runner detects the registration within ~10 seconds and starts continuous sync; logs move past `Waiting for setup`.
+6. Confirm the round trip: create a note with the CLI, wait for Headless upload logs, and check it appears in a desktop Obsidian client.
 
 ```sh
-ob login
-ob sync-list-remote
-ob sync-setup --vault agents --path /vaults/agents
+ob login                          # account email/password + 2FA at prompts
+ob sync-list-remote               # exact remote vault name
+ob sync-setup --vault agents --path /vaults/agents   # encryption password at prompt
 ```
 
-Select the actual remote vault name/ID from enumeration if it differs from `agents`. Supply account/MFA/encryption credentials only through supported interactive prompts, never command-line password arguments. The runner detects registration and starts continuous sync automatically. Do not manually start a second continuous sync process against this directory.
+Never pass passwords as command-line arguments, and never paste them into Git, chat, screenshots, or logs. Everything here is interactive by design; the credentials land only in `sync-auth`, which the gateway cannot see. Do not start a second continuous sync process against `/vaults/agents`.
+
+If the vault name differs from `agents`, either register it under that path with its real name (`--vault <real-name> --path /vaults/agents`) or change the expected path in the stack before first login. Re-authentication later repeats steps 1–5; it is needed only if the credential home is lost or the session is revoked.
 
 Alternatively, during a controlled migration copy the existing credential home and working tree with app ownership, preserving `/vaults/agents` as the Headless registration path. Preserve existing bearer values in Portainer. Gateway readiness is **local availability**, not cloud acknowledgment; wait for initial pull and an observed desktop round trip before switching agents.
 

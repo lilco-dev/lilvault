@@ -50,8 +50,9 @@ if [ "${1:-}" = serve ]; then
         });
     '; do
         if [ -z "$announced" ]; then
-            echo 'Waiting for setup. In the Sync console run: ob login'
-            echo 'Then: ob sync-setup --vault agents --path /vaults/agents'
+            echo 'Waiting for setup. In the Sync container console (/bin/sh, app user) run: ob login'
+            echo 'Then: ob sync-list-remote && ob sync-setup --vault agents --path /vaults/agents'
+            echo 'See docs/PORTAINER.md, Activate Obsidian Sync.'
             announced=1
         fi
         sleep 10
