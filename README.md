@@ -2,11 +2,11 @@
 
 A self-hosted gateway exposing existing Obsidian Sync vaults to remote AI agents over MCP Streamable HTTP, with a small REST API for diagnostics and automation.
 
-**Status: M1 REST and the local MCP slice are implemented and tested. Remote Hermes/Obsidian acceptance and production packaging remain. Use disposable vaults only for now.**
+**Status: deployed in production on the NAS — Hermes and other agents reach all seven MCP tools over a private HTTPS route. Sync supervision and release polish (M3/M4 leftovers) remain.**
 
 ## Progress
 
-M0 verified official Obsidian Headless in Docker on a Linux deployment host: real desktop round trips, two isolated vaults, container recreation, external atomic writes, bounded offline recovery, and observed conflict behavior. M1 adds fail-closed configuration, vault-scoped bearer authentication, Linux descriptor-relative Markdown operations, conditional writes, and a REST API. The local MCP slice adds four authenticated tools through the official Rust SDK's stateless Streamable HTTP transport. See [M0 findings](docs/M0-FINDINGS.md), the [REST contract](docs/API.md), and the [MCP contract](docs/MCP.md).
+M0 verified official Obsidian Headless in Docker on a Linux deployment host: real desktop round trips, two isolated vaults, container recreation, external atomic writes, bounded offline recovery, and observed conflict behavior. M1 added fail-closed configuration, vault-scoped bearer authentication, Linux descriptor-relative Markdown operations, conditional writes, and a REST API. M2 added the MCP transport through the official Rust SDK's stateless Streamable HTTP server, and M3 completed the tool set — `list_vaults`, `list_files`, `read_file`, `write_file`, `delete_file`, `search_files`, `get_vault_status`. Deployment runs on a NAS through Portainer with auto-initialized storage, GHCR images, `authorized_keys`-style agent credentials, and a reverse-proxied private HTTPS route; Hermes is connected and reading/writing through it. See [M0 findings](docs/M0-FINDINGS.md), the [REST contract](docs/API.md), the [MCP contract](docs/MCP.md), and [NAS deployment](docs/PORTAINER.md).
 
 The intended flow is:
 
@@ -100,4 +100,4 @@ Use `./scripts/lilvault tools` or `./scripts/lilvault call <tool> '<json-args>'`
 - The gateway must never mount the sync credential home or Docker socket.
 - Back up real vaults; gateway locks do not serialize against external Headless writes.
 
-MCP is available at `/mcp` on the same listener with the same bearer token. Its default Host allowlist is loopback-only and browser Origins are denied. There is no remote Hermes demo or production Compose gateway deployment yet. The Headless feasibility containers and gateway remain separate; local write success does not establish a cloud round trip.
+MCP is available at `/mcp` on the same listener with the same bearer credential. Its default Host allowlist is loopback-only and browser Origins are denied; production deployments add the approved proxy authority with `LILVAULT_MCP_HOST`. Write and delete results report local filesystem success, never cloud synchronization — the gateway cannot observe the sync process, so status honestly reports `unknown`.
