@@ -71,7 +71,7 @@ Alternatively, during a controlled migration copy the existing credential home a
 - Successful `main` builds publish `latest` and `sha-<full-commit>`.
 - A pushed `vX.Y.Z` tag publishes `X.Y.Z`, `X.Y`, and its SHA tag.
 - `latest` is mutable; published SHA tags or image digests are preferable for controlled upgrades.
-- **First publication:** GitHub defaults new packages to private, even for public repositories. A package owner must change **both** packages to Public in their package settings. Verify anonymous pulls before advertising a zero-login installation; do not ask NAS users for a GitHub token as a workaround.
+- **Visibility:** both packages were switched to Public after first publication; anonymous pulls were verified for `latest` at digests `sha256:ea19d149…` (gateway) and `sha256:742e2e42…` (sync), `linux/amd64`. Future first-published packages (e.g., after a rename) repeat the one-time visibility step; do not ask NAS users for a GitHub token as a workaround.
 - Redeploy the full stack with image pulls enabled after publication. Do not enable Git auto-redeployment that races ahead of the corresponding image builds.
 
 Container restart policies recover process exits and daemon restarts; **unhealthy status alone does not make Docker restart a container**. The gateway health check validates `/readyz`, not cloud freshness. A running Sync process or bootstrap waiter is not proof of successful synchronization.
