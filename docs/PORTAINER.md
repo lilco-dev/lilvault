@@ -114,7 +114,7 @@ Container restart policies recover process exits and daemon restarts; **unhealth
 
 ## Private routing, migration, and recovery
 
-Only `127.0.0.1:8737` is published. Do not expose MCP on a public NAS domain by default. Confirm the existing private proxy/Tailscale network namespace and obtain approval for a private HTTPS route before changing bindings, networks, or another service's route. A proxy container's loopback may not be the NAS host's loopback.
+The stack publishes `8737` on **all host interfaces** (not just loopback) so a containerized reverse proxy can reach the NAS host IP — a proxy container's `127.0.0.1` is not the NAS host. Point the proxy at any NAS address on port 8737, and set `LILVAULT_MCP_HOST` to the proxy's HTTPS authority so MCP accepts that Host. This also means every host on the LAN can reach the gateway directly, bypassing the proxy's TLS; if the LAN is not fully trusted, restrict the publish to a specific IP (e.g. `"192.168.1.10:8737:8737"`) or share a Docker network with the proxy instead of publishing. Do not expose MCP on a public domain, and obtain approval before changing another service's route.
 
 For migration, quiesce old gateway writes and Sync, take a consistent private backup, transfer through a trusted encrypted channel with app ownership, and start the new stack. Test local readiness, each existing agent key, `agents`-only scope, conditional writes, and a real cloud/desktop round trip. Verify remote-agent access before switching clients, then explicitly retire the old writable instance. Never run two sync owners against the same shared directory.
 

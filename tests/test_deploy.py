@@ -57,8 +57,9 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(set(init["cap_add"]), {"CHOWN", "FOWNER", "DAC_OVERRIDE"})
         self.assertNotIn("LILVAULT_HERMES_TOKEN", init["environment"])
         port = services["gateway"]["ports"][0]
-        self.assertEqual(port["host_ip"], "127.0.0.1")
+        self.assertEqual(port["published"], "8737")
         self.assertEqual(port["target"], 8737)
+        self.assertNotIn("host_ip", port)
         self.assertNotIn("ports", services["sync"])
 
     def test_auth_and_runtime_cache_are_not_mounted_in_gateway(self):

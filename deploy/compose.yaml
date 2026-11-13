@@ -44,8 +44,10 @@ services:
     security_opt: [no-new-privileges:true]
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
+    # All-interfaces publish so a containerized reverse proxy can reach the
+    # NAS host IP; restrict to a specific IP if the LAN is not fully trusted.
     ports:
-      - "127.0.0.1:8737:8737"
+      - "8737:8737"
     environment:
       RUST_LOG: info
     volumes:
