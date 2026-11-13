@@ -25,8 +25,13 @@ type FilePath = Result<Path<(String, String)>, PathRejection>;
 pub fn router(service: Arc<Service>) -> Router {
     let api = Router::new()
         .route("/vaults", get(vaults))
+        .route("/vaults/{vault}/status", get(status))
+        .route("/vaults/{vault}/search", get(search))
         .route("/vaults/{vault}/files", get(list))
-        .route("/vaults/{vault}/files/{*path}", get(read).put(write))
+        .route(
+            "/vaults/{vault}/files/{*path}",
+            get(read).put(write).delete(delete),
+        )
         .route_layer(middleware::from_fn_with_state(
             service.clone(),
             authenticate,
@@ -172,6 +177,58 @@ fn precondition(headers: &HeaderMap) -> Result<Condition, Error> {
         }
         _ => Err(Error::BadRequest),
     }
+}
+
+async fn status(
+    State(service): State<Arc<Service>>,
+    Extension(agent): Extension<Agent>,
+    vault: Result<Path<String>, PathRejection>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let Path(vault) = vault.map_err(|_| Error::BadPath)?;
+    let status = work(move || service.status(&agent, &vault)).await?;
+    Ok(Json(
+        serde_json::to_value(status).map_err(|_| Error::Unavailable)?,
+    ))
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SearchQuery {
+    q: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+async fn search(
+    State(service): State<Arc<Service>>,
+    Extension(agent): Extension<Agent>,
+    vault: Result<Path<String>, PathRejection>,
+    query: Result<Query<SearchQuery>, QueryRejection>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let Path(vault) = vault.map_err(|_| Error::BadPath)?;
+    let Query(query) = query.map_err(|_| Error::BadRequest)?;
+    let limit = query.limit.unwrap_or(20);
+    if limit == 0 || limit > 100 {
+        return Err(Error::BadRequest);
+    }
+    let matches = work(move || service.search(&agent, &vault, &query.q, limit)).await?;
+    Ok(Json(json!({"matches":matches})))
+}
+
+async fn delete(
+    State(service): State<Arc<Service>>,
+    Extension(agent): Extension<Agent>,
+    path: FilePath,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Error> {
+    let Path((vault, path)) = path.map_err(|_| Error::BadPath)?;
+    // If-None-Match: * is meaningless for deletion; an exact If-Match is required.
+    let condition = match precondition(&headers)? {
+        Condition::Match(revision) => Condition::Match(revision),
+        Condition::Create => return Err(Error::BadRequest),
+    };
+    work(move || service.delete(&agent, &vault, &path, &condition)).await?;
+    Ok(Json(json!({"deleted":true,"cloud_sync":"unknown"})))
 }
 
 async fn write(

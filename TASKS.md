@@ -47,10 +47,12 @@
   - `scripts/lilvault` preserves `tools`/`call`, uses explicit environment/token-file configuration, and passes 10 standard-library HTTP tests plus the existing 25 Rust tests. Live HTTPS discovery/read and the installed loopback client were verified without changing notes. See [docs/CLI.md](docs/CLI.md).
 - [ ] Connect Hermes remotely through approved HTTPS/private transport.
   - Private HTTPS :9443 and loopback gateway are live; both unchanged credentials see only `agents`, and retired vault IDs are denied. The existing remote helper read the setup note successfully. Native Hermes-agent acceptance remains separate; see [docs/TAILNET.md](docs/TAILNET.md).
-- [ ] Demonstrate Hermes-created note appears in Obsidian.
+- [x] Demonstrate Hermes-created note appears in Obsidian.
+  - Hermes connected to the production NAS gateway over the private HTTPS route and discovered all seven tools; remote round trip accepted by the operator.
 
 ## M3 — Hardening
-- [ ] Add delete_file, search_files, and get_vault_status.
+- [x] Add delete_file, search_files, and get_vault_status.
+  - All three share the core ACL/path rules. Delete requires an exact revision (404 on missing, 412 on stale, 403 read-only). Search is a bounded case-insensitive filename/content scan with lowercased snippets, limit 1-100, `.obsidian`/dot-paths excluded, and authorization before results. Status reports local availability and honestly `unknown` cloud/sync state — the sync process lives in another container the gateway cannot observe. REST got `DELETE`, `GET .../search?q=&limit=`, and `GET .../status`. 7 new tests (4 REST, 3 MCP-path incl. tool discovery updated to 7 tools) — 32 Rust tests, fmt, and Clippy pass on the declared 1.88 toolchain.
 - [ ] Add per-vault sync supervision, degraded state, and useful logs.
 - [ ] Test multiple vaults and read-only agents.
 - [ ] Test container restart and offline behavior.

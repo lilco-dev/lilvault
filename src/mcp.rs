@@ -50,6 +50,29 @@ struct WriteFile {
     create_only: bool,
 }
 
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct DeleteFile {
+    vault_id: String,
+    path: String,
+    expected_revision: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SearchFiles {
+    vault_id: String,
+    query: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct VaultId {
+    vault_id: String,
+}
+
 fn agent(ctx: &RequestContext<RoleServer>) -> Result<Agent, ErrorData> {
     ctx.extensions
         .get::<axum::http::request::Parts>()
@@ -143,6 +166,71 @@ impl Mcp {
             })
             .await,
         )
+    }
+
+    #[tool(
+        description = "Delete a Markdown note by exact revision; re-read after external syncs first. Local deletion only, not a cloud acknowledgment."
+    )]
+    async fn delete_file(
+        &self,
+        ctx: RequestContext<RoleServer>,
+        Parameters(args): Parameters<DeleteFile>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let agent = agent(&ctx)?;
+        if !valid_revision(&args.expected_revision) {
+            return result::<serde_json::Value>(Err(Error::BadRequest));
+        }
+        let service = self.service.clone();
+        result(
+            work(move || {
+                service
+                    .delete(
+                        &agent,
+                        &args.vault_id,
+                        &args.path,
+                        &Condition::Match(args.expected_revision),
+                    )
+                    .map(|_| json!({"deleted":true,"cloud_sync":"unknown"}))
+            })
+            .await,
+        )
+    }
+
+    #[tool(
+        description = "Case-insensitive search across authorized note paths and content; returns matching paths with a lowercased content snippet (empty for filename-only matches). Bounded scan, default 20 results."
+    )]
+    async fn search_files(
+        &self,
+        ctx: RequestContext<RoleServer>,
+        Parameters(args): Parameters<SearchFiles>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let agent = agent(&ctx)?;
+        let limit = args.limit.unwrap_or(20);
+        if limit == 0 || limit > 100 {
+            return result::<serde_json::Value>(Err(Error::BadRequest));
+        }
+        let service = self.service.clone();
+        result(
+            work(move || {
+                service
+                    .search(&agent, &args.vault_id, &args.query, limit)
+                    .map(|matches| json!({"matches":matches}))
+            })
+            .await,
+        )
+    }
+
+    #[tool(
+        description = "Local availability and access level for one vault. Cloud/sync state is unobservable from the gateway and always reported unknown."
+    )]
+    async fn get_vault_status(
+        &self,
+        ctx: RequestContext<RoleServer>,
+        Parameters(args): Parameters<VaultId>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let agent = agent(&ctx)?;
+        let service = self.service.clone();
+        result(work(move || service.status(&agent, &args.vault_id)).await)
     }
 }
 

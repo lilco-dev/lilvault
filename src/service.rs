@@ -1,7 +1,7 @@
 use crate::{
     config::{Config, ConfigError},
     error::Error,
-    vault::{Condition, Entry, Note, Vault},
+    vault::{Condition, Entry, Match, Note, Vault},
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -33,6 +33,14 @@ struct Credential {
 pub struct VaultInfo {
     pub id: String,
     pub access: Access,
+}
+
+#[derive(Serialize)]
+pub struct VaultStatus {
+    pub vault_id: String,
+    pub access: Access,
+    pub local_available: bool,
+    pub sync: String,
 }
 
 pub struct Service {
@@ -334,5 +342,35 @@ impl Service {
         condition: &Condition,
     ) -> Result<String, Error> {
         self.vault(agent, id, true)?.write(path, content, condition)
+    }
+    pub fn delete(
+        &self,
+        agent: &Agent,
+        id: &str,
+        path: &str,
+        condition: &Condition,
+    ) -> Result<(), Error> {
+        self.vault(agent, id, true)?.delete(path, condition)
+    }
+    pub fn search(
+        &self,
+        agent: &Agent,
+        id: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<Match>, Error> {
+        self.vault(agent, id, false)?.search(query, limit)
+    }
+    pub fn status(&self, agent: &Agent, id: &str) -> Result<VaultStatus, Error> {
+        let access = agent.permissions.get(id).ok_or(Error::NotFound)?;
+        let vault = self.vaults.get(id).ok_or(Error::NotFound)?;
+        Ok(VaultStatus {
+            vault_id: id.to_owned(),
+            access: *access,
+            local_available: vault.available(),
+            // The sync process lives in a separate container; the gateway cannot
+            // observe cloud state, so it stays honest rather than optimistic.
+            sync: "unknown".into(),
+        })
     }
 }

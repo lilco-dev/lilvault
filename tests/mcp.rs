@@ -150,7 +150,15 @@ async fn sdk_handshake_and_discovery_are_authenticated_and_stateless() {
     names.sort();
     assert_eq!(
         names,
-        ["list_files", "list_vaults", "read_file", "write_file"]
+        [
+            "delete_file",
+            "get_vault_status",
+            "list_files",
+            "list_vaults",
+            "read_file",
+            "search_files",
+            "write_file"
+        ]
     );
     // A forged old session header never bypasses fresh bearer authentication.
     assert_eq!(
@@ -357,7 +365,7 @@ async fn real_sdk_client_initializes_and_calls_tools_over_http() {
     .unwrap()
     .unwrap();
     let tools = client.list_all_tools().await.unwrap();
-    assert_eq!(tools.len(), 4);
+    assert_eq!(tools.len(), 7);
     let value=client.call_tool(CallToolRequestParams::new("write_file").with_arguments(json!({"vault_id":"a","path":"sdk.md","content":"created by official SDK client","create_only":true}).as_object().unwrap().clone())).await.unwrap();
     assert_ne!(value.is_error, Some(true));
     assert_eq!(
@@ -390,4 +398,100 @@ async fn real_sdk_client_initializes_and_calls_tools_over_http() {
         fs::read_to_string(f.root.path().join("a/sdk.md")).unwrap(),
         "created by official SDK client"
     );
+}
+
+#[tokio::test]
+async fn delete_search_and_status_share_the_core_rules() {
+    let f = Fixture::new();
+    // Status is authorized, honest about unknown sync, and hides foreign vaults.
+    let value = f
+        .call(WRITER, "get_vault_status", json!({"vault_id":"a"}))
+        .await;
+    assert_eq!(tool_result(&value)["vault_id"], "a");
+    assert_eq!(tool_result(&value)["local_available"], true);
+    assert_eq!(tool_result(&value)["sync"], "unknown");
+    let value = f
+        .call(WRITER, "get_vault_status", json!({"vault_id":"b"}))
+        .await;
+    assert_eq!(value["result"]["isError"], true);
+    assert_eq!(tool_result(&value)["error"]["code"], "not_found");
+
+    // Search is case-insensitive over filenames and content, with limits.
+    let written = f.call(WRITER, "write_file", json!({"vault_id":"a","path":"coffee.md","content":"espresso notes","create_only":true})).await;
+    assert_ne!(written["result"]["isError"], true);
+    let value = f
+        .call(
+            WRITER,
+            "search_files",
+            json!({"vault_id":"a","query":"Espresso"}),
+        )
+        .await;
+    let matches = tool_result(&value)["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0]["path"], "coffee.md");
+    assert!(matches[0]["snippet"].as_str().unwrap().contains("espresso"));
+    let value = f
+        .call(
+            WRITER,
+            "search_files",
+            json!({"vault_id":"a","query":"x","limit":0}),
+        )
+        .await;
+    assert_eq!(value["result"]["isError"], true);
+    assert_eq!(tool_result(&value)["error"]["code"], "invalid_request");
+    let value = f
+        .call(
+            READER,
+            "search_files",
+            json!({"vault_id":"a","query":"espresso"}),
+        )
+        .await;
+    assert_eq!(tool_result(&value)["matches"].as_array().unwrap().len(), 1);
+
+    // Delete requires the exact revision and enforces read-write access.
+    let note = f
+        .call(
+            WRITER,
+            "read_file",
+            json!({"vault_id":"a","path":"coffee.md"}),
+        )
+        .await;
+    let revision = tool_result(&note)["revision"].as_str().unwrap().to_owned();
+    let wrong = "0".repeat(64);
+    for (token, revision) in [(READER, revision.as_str()), (WRITER, wrong.as_str())] {
+        let value = f
+            .call(
+                token,
+                "delete_file",
+                json!({"vault_id":"a","path":"coffee.md","expected_revision":revision}),
+            )
+            .await;
+        assert_eq!(value["result"]["isError"], true);
+    }
+    let value = f
+        .call(
+            WRITER,
+            "delete_file",
+            json!({"vault_id":"a","path":"coffee.md","expected_revision":revision}),
+        )
+        .await;
+    assert_eq!(tool_result(&value)["deleted"], true);
+    assert_eq!(tool_result(&value)["cloud_sync"], "unknown");
+    let value = f
+        .call(
+            WRITER,
+            "read_file",
+            json!({"vault_id":"a","path":"coffee.md"}),
+        )
+        .await;
+    assert_eq!(value["result"]["isError"], true);
+    assert_eq!(tool_result(&value)["error"]["code"], "not_found");
+    let value = f
+        .call(
+            WRITER,
+            "delete_file",
+            json!({"vault_id":"a","path":"coffee.md","expected_revision":"not-hex"}),
+        )
+        .await;
+    assert_eq!(tool_result(&value)["error"]["code"], "invalid_request");
 }

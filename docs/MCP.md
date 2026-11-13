@@ -26,6 +26,9 @@ This is an illustrative hostname, not a provisioned endpoint. Wildcards, URLs, a
 | `list_files` | `vault_id`, optional `path` (root by default: omit `path` or pass an empty string; `"/"` is rejected) | `files`: immediate visible Markdown files/directories, path/type/size |
 | `read_file` | `vault_id`, `path` | `content`, unquoted SHA-256 `revision` |
 | `write_file` | `vault_id`, `path`, `content`, **either** `create_only: true` **or** `expected_revision` | `revision`, `local_write: true`, `cloud_sync: "unknown"` |
+| `delete_file` | `vault_id`, `path`, `expected_revision` | `deleted: true`, `cloud_sync: "unknown"` |
+| `search_files` | `vault_id`, `query`, optional `limit` (default 20, max 100) | `matches`: note `path` plus lowercased `snippet` (empty for filename-only matches) |
+| `get_vault_status` | `vault_id` | `vault_id`, `access`, `local_available`, `sync: "unknown"` — the gateway cannot observe cloud/sync state |
 
 A revision is exactly 64 lowercase hex characters, not a quoted HTTP ETag. `create_only: false` with no revision is rejected; a revision and `create_only: true` together are rejected. Unknown argument fields are denied. Blind overwrite is never inferred. Tool descriptions, input schemas, tool discovery, and initialization are supplied through the MCP SDK.
 

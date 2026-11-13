@@ -408,10 +408,11 @@ async fn routing_errors_are_json_and_delete_is_not_implemented_yet() {
     let h = Harness::new();
     for (method, path, status) in [
         ("GET", "/nope", StatusCode::NOT_FOUND),
+        // DELETE exists but still requires an exact precondition header.
         (
             "DELETE",
             "/v1/vaults/a/files/note.md",
-            StatusCode::METHOD_NOT_ALLOWED,
+            StatusCode::PRECONDITION_REQUIRED,
         ),
     ] {
         let r = h
@@ -420,4 +421,201 @@ async fn routing_errors_are_json_and_delete_is_not_implemented_yet() {
         assert_eq!(r.status(), status);
         assert!(json(r).await["error"]["code"].is_string());
     }
+}
+
+#[tokio::test]
+async fn delete_requires_exact_revision_and_enforces_permissions() {
+    let h = Harness::new();
+    let etag = h.get("/v1/vaults/a/files/note.md", WRITER).await.headers()["etag"]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    // Deletion needs an exact If-Match; create-style and missing preconditions are rejected.
+    assert_eq!(
+        h.request(
+            "DELETE",
+            "/v1/vaults/a/files/note.md",
+            Some(WRITER),
+            &[("if-none-match", "*")],
+            Body::empty()
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        h.request(
+            "DELETE",
+            "/v1/vaults/a/files/note.md",
+            Some(WRITER),
+            &[],
+            Body::empty()
+        )
+        .await
+        .status(),
+        StatusCode::PRECONDITION_REQUIRED
+    );
+    let stale = format!("\"{}\"", revision(b"not-current"));
+    assert_eq!(
+        h.request(
+            "DELETE",
+            "/v1/vaults/a/files/note.md",
+            Some(WRITER),
+            &[("if-match", stale.as_str())],
+            Body::empty()
+        )
+        .await
+        .status(),
+        StatusCode::PRECONDITION_FAILED
+    );
+    assert!(h.root.path().join("a/note.md").exists());
+    // Read-only credentials and other-vault callers cannot delete.
+    assert_eq!(
+        h.request(
+            "DELETE",
+            "/v1/vaults/a/files/note.md",
+            Some(READER),
+            &[("if-match", etag.as_str())],
+            Body::empty()
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        h.request(
+            "DELETE",
+            "/v1/vaults/a/files/note.md",
+            Some(OTHER),
+            &[("if-match", etag.as_str())],
+            Body::empty()
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let r = h
+        .request(
+            "DELETE",
+            "/v1/vaults/a/files/note.md",
+            Some(WRITER),
+            &[("if-match", etag.as_str())],
+            Body::empty(),
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json(r).await["deleted"], true);
+    assert!(!h.root.path().join("a/note.md").exists());
+    assert_eq!(
+        h.get("/v1/vaults/a/files/note.md", WRITER).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        h.request(
+            "DELETE",
+            "/v1/vaults/a/files/note.md",
+            Some(WRITER),
+            &[("if-match", etag.as_str())],
+            Body::empty()
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn search_finds_filenames_and_content_within_authorized_vault() {
+    let h = Harness::new();
+    fs::write(
+        h.root.path().join("a/folder/coffee.md"),
+        "I enjoy Espresso daily",
+    )
+    .unwrap();
+    fs::write(h.root.path().join("a/folder/tea.md"), "only water here").unwrap();
+    fs::create_dir(h.root.path().join("a/secret-folder")).unwrap();
+    fs::write(
+        h.root.path().join("a/secret-folder/hidden.md"),
+        "espresso secrets",
+    )
+    .unwrap();
+    let value = json(h.get("/v1/vaults/a/search?q=espresso", WRITER).await).await;
+    let matches = value["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 2);
+    let paths: Vec<&str> = matches
+        .iter()
+        .map(|m| m["path"].as_str().unwrap())
+        .collect();
+    assert!(paths.contains(&"folder/coffee.md"));
+    assert!(paths.contains(&"secret-folder/hidden.md"));
+    let coffee = matches
+        .iter()
+        .find(|m| m["path"] == "folder/coffee.md")
+        .unwrap();
+    assert!(coffee["snippet"].as_str().unwrap().contains("espresso"));
+    // Filename matches carry no snippet; internal .obsidian files stay
+    // excluded while a visible file with the same stem is returned.
+    let value = json(h.get("/v1/vaults/a/search?q=coffee", WRITER).await).await;
+    assert_eq!(
+        value["matches"],
+        serde_json::json!([{"path":"folder/coffee.md","snippet":""}])
+    );
+    let value = json(h.get("/v1/vaults/a/search?q=hidden", WRITER).await).await;
+    assert_eq!(
+        value["matches"],
+        serde_json::json!([{"path":"secret-folder/hidden.md","snippet":""}])
+    );
+    let value = json(h.get("/v1/vaults/a/search?q=fixture", WRITER).await).await;
+    assert_eq!(value["matches"], serde_json::json!([]));
+    // Authorization applies before results: other vaults and strangers see 404.
+    assert_eq!(
+        h.get("/v1/vaults/b/search?q=private", WRITER)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        h.get("/v1/vaults/b/search?q=private", OTHER).await.status(),
+        StatusCode::OK
+    );
+    // Bounds and empty queries fail closed.
+    for uri in [
+        "/v1/vaults/a/search",
+        "/v1/vaults/a/search?q=",
+        "/v1/vaults/a/search?q=x&limit=0",
+        "/v1/vaults/a/search?q=x&limit=101",
+    ] {
+        let r = h.get(uri, WRITER).await;
+        assert!(
+            r.status() == StatusCode::BAD_REQUEST || r.status() == StatusCode::NOT_FOUND,
+            "{uri}"
+        );
+    }
+    let r = h
+        .get("/v1/vaults/a/search?q=x&limit=1&extra=1", WRITER)
+        .await;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    // Limit is honored for content matches.
+    let value = json(
+        h.get("/v1/vaults/a/search?q=espresso&limit=1", WRITER)
+            .await,
+    )
+    .await;
+    assert_eq!(value["matches"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn status_reports_local_availability_and_unknown_sync() {
+    let h = Harness::new();
+    let value = json(h.get("/v1/vaults/a/status", WRITER).await).await;
+    assert_eq!(value["vault_id"], "a");
+    assert_eq!(value["access"], "read-write");
+    assert_eq!(value["local_available"], true);
+    assert_eq!(value["sync"], "unknown");
+    assert_eq!(
+        h.get("/v1/vaults/b/status", WRITER).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    let value = json(h.get("/v1/vaults/b/status", OTHER).await).await;
+    assert_eq!(value["access"], "read-write");
 }

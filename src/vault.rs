@@ -58,6 +58,15 @@ pub struct Entry {
     pub size: u64,
 }
 
+#[derive(Serialize)]
+pub struct Match {
+    pub path: String,
+    pub snippet: String,
+}
+
+const SEARCH_SCAN_LIMIT: usize = 10_000;
+const SEARCH_QUERY_LIMIT: usize = 256;
+
 pub fn revision(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -240,6 +249,110 @@ impl Vault {
         }
         result.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(result)
+    }
+
+    pub fn delete(&self, path: &str, condition: &Condition) -> Result<(), Error> {
+        validate_path(path, false)?;
+        let _guard = self.writes.lock().map_err(|_| Error::Unavailable)?;
+        self.check_available()?;
+        let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
+        let dir = open_beneath(
+            &self.root,
+            if parent.is_empty() { "." } else { parent },
+            true,
+        )?;
+        // current_revision reads through the same hard-link/nlink checks as read_at.
+        let Some(expected) = current_revision(&dir, name)? else {
+            return Err(Error::NotFound);
+        };
+        condition.check(&Some(expected))?;
+        fs::unlinkat(&dir, name, AtFlags::empty()).map_err(|e| error::io(e.into()))?;
+        dir.sync_all().map_err(error::io)?;
+        Ok(())
+    }
+
+    /// Bounded case-insensitive filename/content substring search; snippets are
+    /// lowercased and truncated, and unreadable files are skipped by design.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Match>, Error> {
+        if query.is_empty() || query.len() > SEARCH_QUERY_LIMIT {
+            return Err(Error::BadRequest);
+        }
+        self.check_available()?;
+        let needle = query.to_lowercase();
+        let mut results = Vec::new();
+        let mut scanned = 0;
+        Self::search_dir(&self.root, "", &needle, limit, &mut results, &mut scanned)?;
+        Ok(results)
+    }
+
+    fn search_dir(
+        dir: &File,
+        prefix: &str,
+        needle: &str,
+        limit: usize,
+        results: &mut Vec<Match>,
+        scanned: &mut usize,
+    ) -> Result<(), Error> {
+        let mut entries = Dir::read_from(dir).map_err(|e| error::io(e.into()))?;
+        while let Some(entry) = entries.read() {
+            *scanned += 1;
+            if *scanned > SEARCH_SCAN_LIMIT {
+                return Err(Error::TooLarge);
+            }
+            let entry = entry.map_err(|e| error::io(e.into()))?;
+            let Ok(name) = entry.file_name().to_str() else {
+                continue;
+            };
+            if !visible(name) {
+                continue;
+            }
+            let stat = match fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW) {
+                Ok(stat) => stat,
+                Err(rustix::io::Errno::NOENT) => continue, // external sync removed it
+                Err(error) => return Err(error::io(error.into())),
+            };
+            let child = if prefix.is_empty() {
+                name.to_owned()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            match FileType::from_raw_mode(stat.st_mode) {
+                FileType::Directory => {
+                    let child_dir = open_beneath(dir, name, true)?;
+                    Self::search_dir(&child_dir, &child, needle, limit, results, scanned)?;
+                }
+                FileType::RegularFile if name.ends_with(".md") && stat.st_nlink == 1 => {
+                    if results.len() >= limit {
+                        return Ok(());
+                    }
+                    if name.to_lowercase().contains(needle) {
+                        results.push(Match {
+                            path: child,
+                            snippet: String::new(),
+                        });
+                        continue;
+                    }
+                    let Ok(note) = read_at(dir, name) else {
+                        continue;
+                    };
+                    let haystack = note.content.to_lowercase();
+                    if let Some(at) = haystack.find(needle) {
+                        let start = at.saturating_sub(48);
+                        let mut end = (at + needle.len() + 48).min(haystack.len());
+                        while !haystack.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        let snippet = haystack[start..end].replace(['\n', '\r'], " ");
+                        results.push(Match {
+                            path: child,
+                            snippet,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     pub fn write(&self, path: &str, content: &str, condition: &Condition) -> Result<String, Error> {

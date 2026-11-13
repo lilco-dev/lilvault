@@ -1,6 +1,6 @@
 # REST API and local consistency
 
-Linux with `openat2` support is required (kernel 5.6+); unsupported kernels fail closed. This is a local-filesystem API, not a cloud-sync acknowledgment service. The local [MCP transport](MCP.md) uses this same core; search, deletion, and sync supervision remain later milestones.
+Linux with `openat2` support is required (kernel 5.6+); unsupported kernels fail closed. This is a local-filesystem API, not a cloud-sync acknowledgment service. The local [MCP transport](MCP.md) uses this same core; sync supervision remains a later milestone.
 
 ## Configuration
 
@@ -22,6 +22,9 @@ All `/v1` routes require exactly one `Authorization: Bearer <token>` header. Pro
 | `GET /v1/vaults/{id}/files?path=folder` | `{"files":[{"path":"folder/note.md","type":"file","size":42}]}`; immediate children only. Omit `path` for root. |
 | `GET /v1/vaults/{id}/files/{path}` | Raw UTF-8 Markdown; `Content-Type: text/markdown; charset=utf-8` and strong `ETag` |
 | `PUT /v1/vaults/{id}/files/{path}` | Raw UTF-8 body; requires a create-only or matching-revision header |
+| `DELETE /v1/vaults/{id}/files/{path}` | Requires an exact `If-Match`; `If-None-Match: *` is invalid for deletion. Returns `{"deleted":true,"cloud_sync":"unknown"}` |
+| `GET /v1/vaults/{id}/search?q=needle&limit=20` | Bounded case-insensitive filename/content substring search; `{"matches":[{"path":"...","snippet":"..."}]}`; `limit` 1-100, snippets lowercased, filename-only matches have an empty snippet |
+| `GET /v1/vaults/{id}/status` | `{"vault_id","access","local_available","sync":"unknown"}`; the gateway cannot observe the sync process or cloud freshness |
 
 Only visible directories and single-linked `.md` regular files are listed. Symlinks, hard-linked files, hidden entries, non-UTF-8 names, and attachments are omitted. Empty directories are returned. File size is in bytes; directory size is zero. Listing more than 10,000 raw directory entries fails with 413 rather than returning a misleading partial list.
 
@@ -53,7 +56,7 @@ The HTTP deadline is 30 seconds. A timed-out/connection-lost write may still fin
 
 ## Errors
 
-Errors use `{"error":{"code":"...","message":"..."}}`, including extraction, size, not-found, and method errors. Main status codes are 400 invalid input/path, 401 missing/invalid bearer, 403 read-only, 404 unavailable identity/resource, 412 stale/create-existing precondition, 413 size/listing limit, 428 missing precondition, 503 unsafe/unavailable root or I/O failure, and 504 deadline exceeded. Delete/search/status routes remain later milestones; `/mcp` is documented separately in [MCP.md](MCP.md). A 409 conflict signal is reserved for later reliable sync/conflict observation; this slice does not claim it can detect every cloud conflict.
+Errors use `{"error":{"code":"...","message":"..."}}`, including extraction, size, not-found, and method errors. Main status codes are 400 invalid input/path, 401 missing/invalid bearer, 403 read-only, 404 unavailable identity/resource, 412 stale/create-existing precondition, 413 size/listing limit, 428 missing precondition, 503 unsafe/unavailable root or I/O failure, and 504 deadline exceeded. `/mcp` is documented separately in [MCP.md](MCP.md). Search is a bounded scan (10,000 entries); larger vaults should page through `list_files` instead. A 409 conflict signal is reserved for later reliable sync/conflict observation; this slice does not claim it can detect every cloud conflict.
 
 ## Development checks
 
