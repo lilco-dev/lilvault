@@ -5,8 +5,10 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends util-linux \
     && rm -rf /var/lib/apt/lists/*
 COPY deploy/sync-entrypoint.sh /usr/local/bin/lilvault-sync
+COPY deploy/sync-supervisor.mjs /usr/local/lib/lilvault/sync-supervisor.mjs
 RUN chmod 0755 /usr/local/bin/lilvault-sync \
-    && ln -s /usr/local/bin/lilvault-sync /usr/local/bin/ob
+    && ln -s /usr/local/bin/lilvault-sync /usr/local/bin/ob \
+    && ln -s /usr/local/bin/lilvault-sync /usr/local/bin/lilvault-add-vault
 
 ENV HOME=/home/node
 USER node

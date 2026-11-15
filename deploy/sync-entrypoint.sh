@@ -31,32 +31,63 @@ fi
 flock -u 9
 exec 9>&-
 
+case "$(basename "$0")" in
+    lilvault-add-vault) set -- add-vault "$@" ;;
+esac
+
 if [ "${1:-}" = serve ]; then
     shift
-    if [ "$#" -ne 0 ]; then
-        echo 'serve does not accept extra arguments; use ob for official CLI commands.' >&2
+    [ "$#" -eq 0 ] || { echo 'serve does not accept arguments.' >&2; exit 1; }
+    exec node /usr/local/lib/lilvault/sync-supervisor.mjs "$prefix/bin/ob"
+fi
+
+if [ "${1:-}" = add-vault ]; then
+    shift
+    [ "$#" -le 2 ] || { echo 'usage: lilvault-add-vault [local-id [remote-vault]]' >&2; exit 1; }
+    registry=${LILVAULT_VAULT_REGISTRY:-/registry}
+    [ -d /vaults ] && [ -w /vaults ] || { echo '/vaults is not writable.' >&2; exit 1; }
+    [ -d "$registry" ] && [ -w "$registry" ] || { echo "$registry is not writable." >&2; exit 1; }
+
+    remote=${2:-}
+    id=${1:-}
+    if [ -z "$id" ]; then
+        echo 'Available remote vaults:' >&2
+        "$prefix/bin/ob" sync-list-remote >&2
+        printf 'Remote vault name or ID: ' >&2
+        IFS= read -r remote
+        [ -n "$remote" ] || { echo 'A remote vault is required.' >&2; exit 1; }
+        suggested=$(printf '%s' "$remote" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9-' '-' | sed 's/^-*//;s/-*$//' | cut -c1-64)
+        printf 'Local vault ID [%s]: ' "$suggested" >&2
+        IFS= read -r id
+        id=${id:-$suggested}
+    else
+        remote=${remote:-$id}
+    fi
+    case "$id" in
+        '' | *[!a-zA-Z0-9_-]*) echo 'Local ID must be 1-64 letters, digits, underscores, or hyphens.' >&2; exit 1 ;;
+    esac
+    [ "${#id}" -le 64 ] || { echo 'Local ID is longer than 64 characters.' >&2; exit 1; }
+    path=/vaults/$id
+    marker=$registry/$id
+    { [ ! -e "$marker" ] && [ ! -L "$marker" ]; } || {
+        echo "Vault '$id' is already or unsafely registered." >&2
+        exit 1
+    }
+    if [ ! -e "$path" ]; then
+        mkdir -m 0700 "$path"
+    elif [ ! -d "$path" ] || [ -L "$path" ] || [ -n "$(find "$path" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+        echo "$path must be a missing or empty real directory." >&2
         exit 1
     fi
-    trap 'exit 0' INT TERM
-    announced=''
-    until "$prefix/bin/ob" sync-list-local --json | node -e '
-        let data = "";
-        process.stdin.on("data", chunk => data += chunk);
-        process.stdin.on("end", () => {
-            try {
-                const vaults = JSON.parse(data).vaults;
-                process.exit(Array.isArray(vaults) && vaults.some(v => v.path === "/vaults/agents") ? 0 : 1);
-            } catch { process.exit(1); }
-        });
-    '; do
-        if [ -z "$announced" ]; then
-            echo 'Waiting for setup. In the Sync container console (/bin/sh, app user) run: ob login'
-            echo 'Then: ob sync-list-remote && ob sync-setup --vault agents --path /vaults/agents'
-            echo 'See docs/PORTAINER.md, Activate Obsidian Sync.'
-            announced=1
-        fi
-        sleep 10
-    done
-    exec "$prefix/bin/ob" sync --path /vaults/agents --continuous
+    echo "Configuring remote vault '$remote' at $path" >&2
+    "$prefix/bin/ob" sync-setup --vault "$remote" --path "$path" --device-name "lilvault-$id"
+    temporary=$(mktemp "$registry/.${id}.XXXXXX")
+    printf '%s\n' "$remote" > "$temporary"
+    chmod 0600 "$temporary"
+    mv -f "$temporary" "$marker"
+    echo "Vault '$id' registered. Continuous sync starts within 5 seconds."
+    echo "Grant agents access with lilvault-add-agent in the gateway container."
+    exit 0
 fi
+
 exec "$prefix/bin/ob" "$@"

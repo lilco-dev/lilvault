@@ -47,14 +47,17 @@
   - `scripts/lilvault` preserves `tools`/`call`, uses explicit environment/token-file configuration, and passes 10 standard-library HTTP tests plus the existing 25 Rust tests. Live HTTPS discovery/read and the installed loopback client were verified without changing notes. See [docs/CLI.md](docs/CLI.md).
 - [ ] Connect Hermes remotely through approved HTTPS/private transport.
   - Private HTTPS :9443 and loopback gateway are live; both unchanged credentials see only `agents`, and retired vault IDs are denied. The existing remote helper read the setup note successfully. Native Hermes-agent acceptance remains separate; see [docs/TAILNET.md](docs/TAILNET.md).
-- [x] Demonstrate Hermes-created note appears in Obsidian.
-  - Hermes connected to the production NAS gateway over the private HTTPS route and discovered all seven tools; remote round trip accepted by the operator.
+- [x] Demonstrate a remote agent-created note appears in Obsidian.
+  - A remote MCP client connected over private HTTPS, discovered all seven tools, and completed the accepted Obsidian round trip.
 
 ## M3 — Hardening
 - [x] Add delete_file, search_files, and get_vault_status.
   - All three share the core ACL/path rules. Delete requires an exact revision (404 on missing, 412 on stale, 403 read-only). Search is a bounded case-insensitive filename/content scan with lowercased snippets, limit 1-100, `.obsidian`/dot-paths excluded, and authorization before results. Status reports local availability and honestly `unknown` cloud/sync state — the sync process lives in another container the gateway cannot observe. REST got `DELETE`, `GET .../search?q=&limit=`, and `GET .../status`. 7 new tests (4 REST, 3 MCP-path incl. tool discovery updated to 7 tools) — 32 Rust tests, fmt, and Clippy pass on the declared 1.88 toolchain.
-- [ ] Add per-vault sync supervision, degraded state, and useful logs.
-- [ ] Test multiple vaults and read-only agents.
+- [x] Add per-vault sync supervision and useful logs.
+  - One Sync container discovers every official registration under `/vaults/<id>`, launches one continuous child per vault, imports/removes gateway registry markers, restarts failed children with bounded exponential backoff, and terminates them cleanly. `lilvault-add-vault` lists remotes, prompts for a safe local ID, invokes official interactive setup, and is detected within five seconds.
+- [ ] Expose reliable degraded sync state to the gateway (Headless currently provides no cloud-freshness API).
+- [x] Test multiple vaults and read-only agents.
+  - A fake official CLI verifies two supervised vault children and marker removal; existing real-client findings verify two independent vaults. Core/MCP/container tests cover vault ACL isolation and read-only write/delete denial.
 - [ ] Test container restart and offline behavior.
   - M0 covered recreation and offline startup; add same-process live reconnect and production Compose/boot-restart verification.
 - [ ] Document consistency limitations and conflict behavior.
@@ -62,9 +65,9 @@
 
 ## M4 — Release packaging
 - [ ] Finalize Dockerfiles, Compose, .env/config examples.
-  - App-owned automatic initialization (TrueNAS apps 568:568), generated config, and public GHCR gateway/Sync-runner publishing are implemented. The proprietary official client is installed only at runtime into a separate versioned cache. All 19 Python tests (including five real-Docker tests) and 25 Rust tests pass locally; fmt/Clippy also pass on the declared Rust 1.88 toolchain. Initialization/idempotence, unsafe inputs, context secret exclusion, MCP writes, offline cache reuse, and pre-login console access are verified. First GHCR package visibility and actual NAS/HTTPS migration still require acceptance. See [docs/PORTAINER.md](docs/PORTAINER.md).
-- [ ] Provision agents without redeploying or rebuilding images.
-  - Agent credentials are now `authorized_keys`-style files in `agents/`: `<name>.token` (read-write) or `<name>.ro.token` (read-only), scoped to all enabled vaults. The stack no longer carries tokens in environment variables. `lilvault-add-agent <name>` in the gateway image adds one after a prompt-only token entry; a gateway restart loads it. Startup fails closed on symlinks, directories, bad names/content, and duplicate agents, while an empty directory starts deny-all. Verified by 3 new Rust tests and a real-container add/restart/authorize flow. See [Manage agent keys](docs/PORTAINER.md#manage-agent-keys).
+  - App-owned initialization, generated registry config, public GHCR gateway/Sync-runner publishing, and runtime-only installation of the proprietary official client are implemented. The declared Rust 1.88 toolchain, shell/Node checks, Rust/Python suites, disposable real-container tests, secret-excluding build context, offline runtime-cache reuse, agent management, and pre-login console access are verified. Tagged release and clean external install acceptance remain. See [docs/PORTAINER.md](docs/PORTAINER.md).
+- [x] Provision vault-scoped agents without rebuilding images.
+  - Each `<name>.token` requires `<name>.permissions` with explicit `vault:read`/`vault:read-write` lines. `lilvault-add-agent` creates a token or updates an existing agent's scopes; the gateway restart does not disturb Sync. Unsafe/missing sidecars, unknown vaults, duplicate credentials, and read-only escalation fail closed. Existing unscoped `agents` keys receive a one-time compatibility sidecar. See [Manage agent keys](docs/PORTAINER.md#manage-agent-keys).
 - [ ] Add provisioning and backup/recovery instructions.
 - [ ] Add README quickstart and operational troubleshooting.
 - [ ] Verify clean install on a disposable directory.

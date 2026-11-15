@@ -29,45 +29,50 @@ The one-shot `initialize` service:
 
 - Has no network or Docker socket, a read-only image filesystem, and only `CHOWN`, `FOWNER`, and `DAC_OVERRIDE` capabilities.
 - Runs briefly as root to prepare **only the mounted stack dataset and its Docker runtime-cache volume**. This is necessary when a newly created dataset is root-owned; a non-root process cannot grant itself access.
-- Creates `config`, `agents`, `vaults/agents`, and `sync-auth` as the configured app UID/GID, mode `0700`.
+- Creates `config`, `agents`, `registry`, `vaults/agents`, and `sync-auth` as the configured app UID/GID, mode `0700`.
 - Atomically generates `config/gateway.generated.toml`, mode `0600`, from non-secret settings. Tokens are not passed into the initializer or written into this file.
+- Migrates managed single-vault installs without changing vault contents, `sync-auth`, or existing token files; see **Automatic upgrades** below.
 - Rejects unsafe IDs, symlink targets, malformed host input, and unmanaged files at the generated-config path. It does not recursively chown note trees, alter other datasets, or overwrite separate custom configuration files.
 
-An exit code of **0** for this container is expected. Gateway and Sync wait for successful initialization, then run as **568:568**, with `restart: unless-stopped`, no capabilities, and no privileged mode. On daemon restart they reuse the prepared storage; the initializer does not need to remain running.
+**Automatic upgrades:** before changing an existing stack, take a normal private backup and use the updated Compose file so the new registry mounts are present. On redeploy the initializer preserves tokens, notes, and `sync-auth`, rewrites only the managed gateway config to use the registry, creates the existing `agents` marker, and adds an `agents:read-write` or `agents:read` sidecar for each legacy token. Existing permissions files are left untouched. The supervisor imports all valid registrations under `/vaults/<id>` and starts one sync child per vault. No interactive vault setup or Obsidian re-login is needed for an existing working registration.
+
+An exit code of **0** for this container is expected. Gateway and Sync wait for successful initialization, then run as the configured app user (default **568:568**), with `restart: unless-stopped`, no capabilities, and no privileged mode. On daemon restart they reuse the prepared storage; the initializer does not need to remain running.
 
 ```text
 <stack-root>/
   agents/<name>.token
+  agents/<name>.permissions
   config/gateway.generated.toml
-  vaults/agents/
+  registry/<vault-id>
+  vaults/<vault-id>/
   sync-auth/
 ```
 
 `gateway.generated.toml` is managed: change stack variables and redeploy rather than editing it. Advanced custom configurations can override the gateway command to select another private TOML file; the initializer leaves other files alone. An imported working tree/auth home must have app-readable ownership; bootstrap intentionally does not recursively rewrite existing files or guess a migration strategy.
 
-Only Sync mounts `sync-auth`. The gateway mounts vault data, its read-only configuration directory, and the `agents` key directory read-write so `lilvault-add-agent` can write there. The one-shot initializer temporarily sees the dataset to prepare directory metadata. Neither running application has the whole dataset mounted.
+Only Sync mounts `sync-auth`. Sync mounts the whole `vaults` tree and writes atomic marker files to `registry`; one supervisor launches one official Headless child per registered vault. The gateway mounts vault data and the registry read-only, hot-discovers marker changes on the next request, and mounts `agents` read-write solely for `lilvault-add-agent`. Neither running application has the whole stack dataset mounted.
 
 ## Manage agent keys
 
-Agent credentials are `authorized_keys`-style files: the file name is the agent name and the file holds one 64-hex token.
+Each agent has two files:
 
-| File | Grants |
+| File | Contents |
 |---|---|
-| `<name>.token` | read-write on every enabled vault |
-| `<name>.ro.token` | read-only on every enabled vault |
+| `<name>.token` | one private 64-hex bearer token |
+| `<name>.permissions` | one explicit `vault:read` or `vault:read-write` line per authorized vault |
 
 ```sh
-openssl rand -hex 32                        # generate a token privately
-docker exec -it <gateway> lilvault-add-agent claude            # read-write
-docker exec -it <gateway> lilvault-add-agent claude --read-only
-docker restart <gateway>                    # load keys; ~1s, Sync untouched
+openssl rand -hex 32
+docker exec -it <gateway> lilvault-add-agent claude agents:read-write
+docker exec -it <gateway> lilvault-add-agent researcher agents:read brain:read
+# Or omit permissions and choose from the registered-vault prompt:
+docker exec -it <gateway> lilvault-add-agent researcher
+docker restart <gateway>                    # reload credentials; Sync is untouched
 ```
 
-In Portainer, open the gateway container's console and run the same command; it prompts for the token rather than accepting it as an argument. Keys are loaded at startup, so a restart is required after adding or removing one. Rotation is: remove the file, add the agent again with a new token, restart. Removing a key and restarting revokes that agent immediately; no request holds a session across restarts.
+For a new name, the command prompts for the token rather than accepting it as an argument. For an existing name it preserves the token and atomically replaces only the permission file, which is how an administrator grants a newly added vault. Removing both files and restarting revokes the credential. Existing unscoped single-vault keys are migrated once to `agents:read` or `agents:read-write` by the initializer; new vaults are never granted automatically.
 
-Startup **fails closed** if any entry is a symlink, a directory, an unsupported file name, something other than one 64-hex token, or a duplicate agent name. An empty directory is allowed: the gateway starts, logs that no keys are loaded, and denies every request until one exists. Keys grant access to all enabled vaults; per-vault scoping needs the explicit `[[agents]]` configuration mode.
-
-Because the stack no longer holds tokens, migration means recreating the existing bearer values as key files — copy each current token into `<stack-root>/agents/<name>.token` with app ownership and mode `0600`, or add fresh keys and update the agents. Never paste tokens into chat, Git, screenshots, or command arguments.
+Startup **fails closed** if token/permission entries are symlinks, directories, malformed, oversized, duplicated, or refer to an unregistered vault. An empty key directory is allowed and denies every request. Never paste tokens into chat, Git, screenshots, or command arguments.
 
 ## Official Headless installation and login
 
@@ -75,30 +80,39 @@ The official npm package is marked **`UNLICENSED`**. Public availability is not 
 
 Downloaded software lives in a Docker-managed `headless-runtime` volume, separate from notes and credentials. Installation is locked and version/platform-specific; a completion marker is written only after successful installation. Restarts reuse it without npm access, and interrupted installs are retried. No credentials or downloaded proprietary packages are baked into GHCR images. First bootstrap needs outbound npm access; actual Sync needs its normal network access.
 
-## Activate Obsidian Sync (one-time, required)
+## Add and sync vaults
 
-The gateway will not return notes until this is done. Until then the Sync container stays running, logs **`Waiting for setup`**, and serves nothing but its own console.
-
-**What the operator must do:**
-
-1. Wait for the `initialize` container to exit **0**, then open the **Sync** container console in Portainer. If it offers a choice, choose **`/bin/sh`**; it must be the app user (`568:568`), not root.
-2. In that console run `ob login`. Enter the Obsidian account email/password and any 2FA code **at the prompts**.
-3. Run `ob sync-list-remote` and note the exact name of the vault you want. The stack expects it to be `agents`.
-4. Register it: `ob sync-setup --vault agents --path /vaults/agents` (substitute the real vault name from step 3 if it differs). Enter the vault **encryption password** at the prompt.
-5. Exit the console. The runner detects the registration within ~10 seconds and starts continuous sync; logs move past `Waiting for setup`.
-6. Confirm the round trip: create a note with the CLI, wait for Headless upload logs, and check it appears in a desktop Obsidian client.
+Wait for `initialize` to exit **0**, then open the Sync container console as the app user (`568:568`), not root. Log in once:
 
 ```sh
-ob login                          # account email/password + 2FA at prompts
-ob sync-list-remote               # exact remote vault name
-ob sync-setup --vault agents --path /vaults/agents   # encryption password at prompt
+ob login
 ```
 
-Never pass passwords as command-line arguments, and never paste them into Git, chat, screenshots, or logs. Everything here is interactive by design; the credentials land only in `sync-auth`, which the gateway cannot see. Do not start a second continuous sync process against `/vaults/agents`.
+Enter the account password and any 2FA code only at the official prompts. Then run the setup helper with no arguments:
 
-If the vault name differs from `agents`, either register it under that path with its real name (`--vault <real-name> --path /vaults/agents`) or change the expected path in the stack before first login. Re-authentication later repeats steps 1–5; it is needed only if the credential home is lost or the session is revoked.
+```sh
+lilvault-add-vault
+```
 
-Alternatively, during a controlled migration copy the existing credential home and working tree with app ownership, preserving `/vaults/agents` as the Headless registration path. Recreate the existing agent bearer tokens as key files (see [Manage agent keys](#manage-agent-keys)). Gateway readiness is **local availability**, not cloud acknowledgment; wait for initial pull and an observed desktop round trip before switching agents.
+It displays `ob sync-list-remote`, asks which remote vault to use, suggests a safe local ID, and calls official `ob sync-setup` so the encryption password stays in its interactive prompt. On success it atomically registers `<stack-root>/registry/<id>`. The Sync supervisor detects it within five seconds and launches `ob sync --path /vaults/<id> --continuous`; the gateway hot-discovers the marker without a restart or configuration edit.
+
+For scripting the non-secret choices while retaining the password prompt:
+
+```sh
+lilvault-add-vault brain "My Brain Vault"
+```
+
+Run the helper again for each vault. Never manually start a second continuous process for a registered path; the supervisor owns one child per vault, restarts failed children with bounded exponential backoff, and terminates all children cleanly with the container. Existing valid Headless registrations under `/vaults/<id>` are imported into the registry automatically on startup.
+
+A new vault grants **no agent access by default**. In the gateway container, update each intended credential, then restart only the gateway:
+
+```sh
+lilvault-add-agent claude agents:read-write brain:read-write
+```
+
+Finally create a note through MCP, wait for upload logs, and confirm it appears in an Obsidian client. Gateway readiness is local availability, not cloud acknowledgment. Never pass account, 2FA, encryption, or bearer secrets as command-line arguments.
+
+For migration, copy the existing credential home and each working tree with app ownership, preserving registered `/vaults/<id>` paths. The supervisor imports those registrations; recreate agent token and permission files separately.
 
 ## Publishing and updates
 
@@ -116,7 +130,7 @@ Container restart policies recover process exits and daemon restarts; **unhealth
 
 The stack publishes `8737` on **all host interfaces** (not just loopback) so a containerized reverse proxy can reach the NAS host IP — a proxy container's `127.0.0.1` is not the NAS host. Point the proxy at any NAS address on port 8737, and set `LILVAULT_MCP_HOST` to the proxy's HTTPS authority so MCP accepts that Host. This also means every host on the LAN can reach the gateway directly, bypassing the proxy's TLS; if the LAN is not fully trusted, restrict the publish to a specific IP (e.g. `"192.168.1.10:8737:8737"`) or share a Docker network with the proxy instead of publishing. Do not expose MCP on a public domain, and obtain approval before changing another service's route.
 
-For migration, quiesce old gateway writes and Sync, take a consistent private backup, transfer through a trusted encrypted channel with app ownership, and start the new stack. Test local readiness, each existing agent key, `agents`-only scope, conditional writes, and a real cloud/desktop round trip. Verify remote-agent access before switching clients, then explicitly retire the old writable instance. Never run two sync owners against the same shared directory.
+For migration, quiesce old gateway writes and Sync, take a consistent private backup, transfer through a trusted encrypted channel with app ownership, and start the new stack. Test local readiness, every registered vault, each agent's exact scopes, conditional writes, and a real cloud/desktop round trip. Verify remote-agent access before switching clients, then explicitly retire the old writable instance. Never run two sync owners against the same shared directory.
 
 Snapshots can contain plaintext notes and encryption/authentication material. Protect/encrypt backups and keep an off-device copy. Never restore live synced state while Sync is running: old edits/deletions can propagate. Stop both services and plan reconciliation before rollback. The runtime cache is disposable and can be recreated; preserve the dataset and private deployment variables.
 
@@ -132,4 +146,4 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 ```
 
-The opt-in image tests use labeled disposable volumes, fake credentials, and a nondefault app UID. They verify automatic/idempotent initialization, refusal of unsafe settings/symlinks, key-file authentication including read-only keys, `lilvault-add-agent` plus restart activation, MCP writes/readiness, an unbundled public runner, real official-package installation, offline cache reuse, and console availability before login. They never use real vaults or production credentials. NAS deployment, actual cloud synchronization, boot acceptance, and backup recovery remain separate checks.
+The opt-in image tests use labeled disposable volumes, fake credentials, and a nondefault app UID. They verify automatic/idempotent initialization, refusal of unsafe settings/symlinks, scoped key authentication, `lilvault-add-agent`, interactive vault setup against a fake official CLI, MCP writes/readiness, an unbundled public runner, real official-package installation, offline cache reuse, and console availability before login. A separate supervisor test launches two fake continuous-sync children and removes a stale marker. Tests never use real vaults or deployment credentials; actual cloud synchronization, boot acceptance, and backup recovery remain separate checks.
