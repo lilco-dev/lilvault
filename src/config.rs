@@ -8,6 +8,9 @@ pub struct Config {
     pub server: Server,
     #[serde(default)]
     pub auth: Auth,
+    #[serde(default)]
+    pub vault_registry: VaultRegistry,
+    #[serde(default)]
     pub vaults: Vec<Vault>,
     #[serde(default)]
     pub agents: Vec<Agent>,
@@ -18,6 +21,14 @@ pub struct Config {
 pub struct Auth {
     /// Directory of `<agent>.token` / `<agent>.ro.token` files, like authorized_keys.
     pub keys_dir: Option<PathBuf>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VaultRegistry {
+    /// Marker files are `<vault-id>`; each maps to `<root>/<vault-id>`.
+    pub dir: Option<PathBuf>,
+    pub root: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]

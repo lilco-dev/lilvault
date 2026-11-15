@@ -69,7 +69,7 @@ Reverse proxy / private tunnel (existing infrastructure)
 
 Use two long-running services: the Rust API and `sync` (Node runtime with the official Headless CLI). Share only vault data between them. Sync authentication storage belongs to Sync and must not be mounted into the gateway. Both run as non-root with compatible ownership; TrueNAS deployments default to the built-in apps UID/GID 568:568. A bounded one-shot, network-disabled initializer may prepare only the dedicated dataset directories, generated non-secret config, and runtime-cache ownership before these services start.
 
-**Sync ownership:** one Headless process per vault working directory; never start two processes against the same path. Docker Compose restarts the sync container. A minimal supervisor may launch and monitor multiple child processes, restarting failed children with bounded exponential backoff. Avoid a complex orchestration system.
+**Sync ownership:** one Headless process per vault working directory; never start two processes against the same path. Docker Compose restarts the Sync container. Its minimal supervisor discovers official registrations under `/vaults/<id>`, launches one continuous child per vault, restarts failures with bounded exponential backoff, removes stale registry markers, and terminates children cleanly. Avoid a complex orchestration system.
 
 ## 6. Repository structure
 
@@ -126,7 +126,9 @@ token_env = "LILVAULT_HERMES_TOKEN"
 permissions = ["personal:read-write", "work:read"]
 ```
 
-Configuration is illustrative; implement a documented, validated schema. Never print secret values. Require nonempty secrets of adequate entropy; store hashes if persistent token management is introduced. Fail closed on malformed configuration, unknown vaults, duplicate IDs, missing tokens, and inaccessible paths. Vault paths must be explicitly configured; agents cannot create arbitrary mounts.
+Configuration is illustrative; explicit entries remain supported. The container stack uses a `[vault_registry]` marker directory plus a fixed vault root, so `lilvault-add-vault` can hot-register `<root>/<id>` without editing TOML or restarting the gateway. Registry entries and roots are validated with the same fail-closed path rules.
+
+Never print secret values. Require nonempty secrets of adequate entropy; store only hashes in memory. Container credentials use `<agent>.token` plus `<agent>.permissions` sidecars containing explicit `vault:read` or `vault:read-write` scopes; new vaults are never granted automatically. Fail closed on malformed configuration, unknown vaults, duplicate IDs/tokens, missing permissions, or inaccessible paths. Agents cannot create arbitrary mounts.
 
 ## 8. MCP contract
 

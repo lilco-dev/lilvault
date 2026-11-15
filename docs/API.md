@@ -1,14 +1,14 @@
 # REST API and local consistency
 
-Linux with `openat2` support is required (kernel 5.6+); unsupported kernels fail closed. This is a local-filesystem API, not a cloud-sync acknowledgment service. The local [MCP transport](MCP.md) uses this same core; sync supervision remains a later milestone.
+Linux with `openat2` support is required (kernel 5.6+); unsupported kernels fail closed. This is a local-filesystem API, not a cloud-sync acknowledgment service. The local [MCP transport](MCP.md) uses this same core.
 
 ## Configuration
 
-Copy `config.example.toml` to ignored `config.toml`. Set an **existing, absolute, non-symlink disposable vault directory**, and keep `127.0.0.1:8737` unless approved transport is configured. No directories are created by the API. Enabled vault roots must not overlap or alias each other. Unknown fields, duplicate identifiers, inaccessible roots, malformed permissions, missing/invalid secrets, duplicate secrets, and references to disabled/unknown vaults prevent startup.
+Copy `config.example.toml` to ignored `config.toml`. Set an **existing, absolute, non-symlink disposable vault directory**, and keep `127.0.0.1:8737` unless approved transport is configured. Explicit `[[vaults]]` entries cannot overlap or alias. The container stack instead uses `[vault_registry]` with a read-only marker directory and vault root; each safe marker `<id>` maps to `<root>/<id>` and is hot-discovered on the next request. Registry symlinks, invalid IDs, missing roots, or more than 1,024 markers fail closed.
 
 Tokens must be 32 cryptographically random bytes encoded as 64 hexadecimal characters. The server validates representation/length, not randomness; use a generator, never a human password. It stores SHA-256 digests for comparison and never logs token values.
 
-Two credential sources exist and cannot be combined. `[auth] keys_dir` loads one file per agent: `<name>.token` grants read-write on all enabled vaults and `<name>.ro.token` grants read; each file holds one token. Entries are loaded at startup, so adding or rotating a key requires a restart. An empty key directory starts and denies every request. Anything that is not a regular 0600-style file of one 64-hex token — symlinks, directories, other names, duplicate names, oversized content — fails startup. Alternatively, `[[agents]]` entries read tokens from `token_env` variables; those names must use uppercase ASCII letters, digits, and underscores, and the server does **not** load `.env` automatically. Permission strings are exactly `vault-id:read` or `vault-id:read-write`; an agent must have at least one. Vault IDs and agent names use 1–64 ASCII letters/digits/underscore/hyphen. `enabled` defaults to true; the server listen address defaults to loopback port 8737. No secret is accepted inline in TOML. Config errors intentionally omit TOML excerpts to avoid echoing accidentally inlined credentials.
+Two credential sources exist and cannot be combined. `[auth] keys_dir` loads `<name>.token` (one token) plus `<name>.permissions` (one explicit `vault-id:read` or `vault-id:read-write` line per authorized vault). Legacy `<name>.ro.token` is accepted only with read permissions. Entries load at startup, so credential changes require a gateway restart; an empty directory starts deny-all. Symlinks, directories, missing sidecars, malformed or oversized content, duplicate names/tokens, and unknown vault permissions fail startup. Alternatively, `[[agents]]` entries read tokens from `token_env` variables; those names use uppercase ASCII letters, digits, and underscores, and the server does **not** load `.env` automatically. Vault IDs and agent names use 1–64 ASCII letters/digits/underscore/hyphen. No secret is accepted inline in TOML, and errors intentionally omit TOML excerpts.
 
 ## Routes
 
@@ -48,7 +48,7 @@ The request body and file reads are limited to 2 MiB, must be valid UTF-8, and a
 
 Filesystem I/O runs off the async executor. Gateway writes serialize per vault, re-check the digest while holding the lock, fsync a hidden temporary file in the same directory, re-check the revision again, atomically rename, then fsync the directory. Create-only commit uses Linux `RENAME_NOREPLACE`. Abandoned temporary files are cleaned up.
 
-**Bounded guarantee:** concurrent gateway updates to the same revision cannot both succeed. Headless and other local writers bypass gateway locks; a change detected before commit is rejected, but an external edit in the final check/rename window may still be replaced. This is not distributed compare-and-swap. The gateway performs no merge. M0 demonstrated that Headless's default `merge` itself can drop a competing edit while reporting success. Back up real vaults and test a conflict-preserving deployment policy before relying on this with important notes.
+**Bounded guarantee:** concurrent gateway updates to the same revision cannot both succeed. Headless and other local writers bypass gateway locks; a change detected before commit is rejected, but an external edit in the final check/rename window may still be replaced. This is not distributed compare-and-swap. The gateway performs no merge. Testing found that Headless's default `merge` can drop a competing edit while reporting success. Back up real vaults and test a conflict-preserving deployment policy before relying on this with important notes.
 
 Roots are opened with symlink-rejecting `openat2`; child operations are anchored to directory descriptors, not check-then-open absolute strings. Replacing/unmounting a configured root makes readiness/operations fail closed. An already-open directory descriptor prevents a symlink swap from redirecting I/O; trusted external processes can still rename or remove directories. This is not protection against a malicious host administrator or a process already allowed to read/write all vault data.
 
@@ -66,4 +66,4 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 ```
 
-Tests use temporary vaults and deterministic test-only credentials. Do not copy their token values into a deployment. The M0 Docker sync clients remain separate from this API; no Docker socket or Obsidian credential home is needed by the gateway.
+Tests use temporary vaults and deterministic test-only credentials. Do not copy their token values into a deployment. The gateway needs neither a Docker socket nor the Obsidian credential home.

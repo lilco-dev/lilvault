@@ -1,6 +1,7 @@
 use lilvault::{
-    config::{Agent, Auth, Config, Server, Vault},
+    config::{Agent, Auth, Config, Server, Vault, VaultRegistry},
     service::Service,
+    vault::Condition,
 };
 use std::{fs, os::unix::fs::symlink, path::Path};
 
@@ -8,6 +9,7 @@ fn config(path: &Path) -> Config {
     Config {
         server: Server::default(),
         auth: Auth::default(),
+        vault_registry: VaultRegistry::default(),
         vaults: vec![Vault {
             id: "a".into(),
             path: path.to_path_buf(),
@@ -196,13 +198,15 @@ fn agent_keys_are_loaded_from_file_names_with_read_only_suffix() {
     assert!(service.ready());
 
     fs::write(keys.path().join("writer.token"), "ab".repeat(32)).unwrap();
+    fs::write(keys.path().join("writer.permissions"), "a:read-write\n").unwrap();
     fs::write(keys.path().join("reader.ro.token"), "cd".repeat(32)).unwrap();
+    fs::write(keys.path().join("reader.permissions"), "a:read\n").unwrap();
     let service = Service::from_config(keys_config(vault.path(), keys.path()), |_| None).unwrap();
     let access = |token: &str| {
         let agent = service
             .authenticate(token)
             .expect("key should authenticate");
-        service.list_vaults(&agent)[0].access
+        service.list_vaults(&agent).unwrap()[0].access
     };
     assert_eq!(access(&"ab".repeat(32)), Access::ReadWrite);
     assert_eq!(access(&"cd".repeat(32)), Access::Read);
@@ -228,9 +232,11 @@ fn agent_key_directory_rejects_unsafe_malformed_or_ambiguous_entries() {
 
     fs::write(keys.path().join("dup.token"), "ab".repeat(32)).unwrap();
     fs::write(keys.path().join("dup.ro.token"), "cd".repeat(32)).unwrap();
+    fs::write(keys.path().join("dup.permissions"), "a:read\n").unwrap();
     assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
     fs::remove_file(keys.path().join("dup.ro.token")).unwrap();
     fs::remove_file(keys.path().join("dup.token")).unwrap();
+    fs::remove_file(keys.path().join("dup.permissions")).unwrap();
 
     fs::create_dir(keys.path().join("sub.token")).unwrap();
     assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
@@ -239,6 +245,28 @@ fn agent_key_directory_rejects_unsafe_malformed_or_ambiguous_entries() {
     symlink(vault.path().join("note.md"), keys.path().join("link.token")).unwrap();
     assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
     fs::remove_file(keys.path().join("link.token")).unwrap();
+
+    fs::write(vault.path().join("shared-token"), "ab".repeat(32)).unwrap();
+    fs::hard_link(
+        vault.path().join("shared-token"),
+        keys.path().join("hard.token"),
+    )
+    .unwrap();
+    fs::write(keys.path().join("hard.permissions"), "a:read\n").unwrap();
+    assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
+    fs::remove_file(keys.path().join("hard.token")).unwrap();
+    fs::remove_file(keys.path().join("hard.permissions")).unwrap();
+
+    fs::write(keys.path().join("hard.token"), "ab".repeat(32)).unwrap();
+    fs::write(vault.path().join("shared-permissions"), "a:read\n").unwrap();
+    fs::hard_link(
+        vault.path().join("shared-permissions"),
+        keys.path().join("hard.permissions"),
+    )
+    .unwrap();
+    assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
+    fs::remove_file(keys.path().join("hard.token")).unwrap();
+    fs::remove_file(keys.path().join("hard.permissions")).unwrap();
 
     fs::write(vault.path().join("keys.txt"), "ab".repeat(32)).unwrap();
     let file_keys = keys_config(vault.path(), &vault.path().join("keys.txt"));
@@ -258,4 +286,145 @@ fn agent_key_directory_cannot_be_combined_with_explicit_entries() {
         permissions: vec!["a:read".into()],
     });
     assert!(Service::from_config(c, |_| Some("ab".repeat(32))).is_err());
+}
+
+#[test]
+fn registry_vaults_are_hot_discovered_and_removed_without_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let registry = tempfile::tempdir().unwrap();
+    for id in ["a", "b"] {
+        fs::create_dir(root.path().join(id)).unwrap();
+        fs::write(registry.path().join(id), format!("{id}\n")).unwrap();
+    }
+    let c = Config {
+        server: Server::default(),
+        auth: Auth::default(),
+        vault_registry: VaultRegistry {
+            dir: Some(registry.path().to_path_buf()),
+            root: Some(root.path().to_path_buf()),
+        },
+        vaults: Vec::new(),
+        agents: vec![Agent {
+            name: "agent".into(),
+            token_env: "TOKEN".into(),
+            permissions: vec!["a:read".into(), "b:read-write".into()],
+        }],
+    };
+    let service = Service::from_config(c, |_| Some("ab".repeat(32))).unwrap();
+    let agent = service.authenticate(&"ab".repeat(32)).unwrap();
+    assert_eq!(service.list_vaults(&agent).unwrap().len(), 2);
+    fs::remove_file(registry.path().join("b")).unwrap();
+    assert_eq!(service.list_vaults(&agent).unwrap().len(), 1);
+    fs::write(registry.path().join("b"), "b\n").unwrap();
+    assert_eq!(service.list_vaults(&agent).unwrap().len(), 2);
+    symlink("a", registry.path().join("unsafe")).unwrap();
+    assert!(service.list_vaults(&agent).is_err());
+    fs::remove_file(registry.path().join("unsafe")).unwrap();
+    assert_eq!(service.list_vaults(&agent).unwrap().len(), 2);
+    fs::write(root.path().join("a").join("note.md"), "A only\n").unwrap();
+    assert_eq!(
+        service.read(&agent, "a", "note.md").unwrap().content,
+        "A only\n"
+    );
+    assert!(
+        service
+            .write(&agent, "a", "no.md", "x", &Condition::Create)
+            .is_err()
+    );
+    assert!(
+        service
+            .write(&agent, "b", "yes.md", "B only\n", &Condition::Create)
+            .is_ok()
+    );
+    assert_eq!(
+        service.read(&agent, "b", "yes.md").unwrap().content,
+        "B only\n"
+    );
+}
+
+#[test]
+fn registry_configuration_and_entries_fail_closed() {
+    let root = tempfile::tempdir().unwrap();
+    let registry = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("a")).unwrap();
+    fs::write(registry.path().join("a"), "a\n").unwrap();
+    let mut c = config(root.path().join("a").as_path());
+    c.vault_registry = VaultRegistry {
+        dir: Some(registry.path().to_path_buf()),
+        root: Some(root.path().to_path_buf()),
+    };
+    assert!(Service::from_config(c, |_| Some("ab".repeat(32))).is_err());
+
+    symlink("a", registry.path().join("link")).unwrap();
+    let c = Config {
+        server: Server::default(),
+        auth: Auth::default(),
+        vault_registry: VaultRegistry {
+            dir: Some(registry.path().to_path_buf()),
+            root: Some(root.path().to_path_buf()),
+        },
+        vaults: Vec::new(),
+        agents: vec![Agent {
+            name: "agent".into(),
+            token_env: "TOKEN".into(),
+            permissions: vec!["a:read".into()],
+        }],
+    };
+    assert!(Service::from_config(c, |_| Some("ab".repeat(32))).is_err());
+
+    fs::remove_file(registry.path().join("link")).unwrap();
+    fs::write(root.path().join("marker-source"), "a\n").unwrap();
+    fs::hard_link(
+        root.path().join("marker-source"),
+        registry.path().join("hard"),
+    )
+    .unwrap();
+    let c = Config {
+        server: Server::default(),
+        auth: Auth::default(),
+        vault_registry: VaultRegistry {
+            dir: Some(registry.path().to_path_buf()),
+            root: Some(root.path().to_path_buf()),
+        },
+        vaults: Vec::new(),
+        agents: vec![Agent {
+            name: "agent".into(),
+            token_env: "TOKEN".into(),
+            permissions: vec!["a:read".into()],
+        }],
+    };
+    assert!(Service::from_config(c, |_| Some("ab".repeat(32))).is_err());
+    fs::remove_file(registry.path().join("hard")).unwrap();
+
+    let holder = tempfile::tempdir().unwrap();
+    symlink(registry.path(), holder.path().join("registry-link")).unwrap();
+    let c = Config {
+        server: Server::default(),
+        auth: Auth::default(),
+        vault_registry: VaultRegistry {
+            dir: Some(holder.path().join("registry-link")),
+            root: Some(root.path().to_path_buf()),
+        },
+        vaults: Vec::new(),
+        agents: vec![Agent {
+            name: "agent".into(),
+            token_env: "TOKEN".into(),
+            permissions: vec!["a:read".into()],
+        }],
+    };
+    assert!(Service::from_config(c, |_| Some("ab".repeat(32))).is_err());
+}
+
+#[test]
+fn key_permissions_are_explicit_and_vault_scoped() {
+    let vault = tempfile::tempdir().unwrap();
+    let keys = tempfile::tempdir().unwrap();
+    fs::write(keys.path().join("agent.token"), "ab".repeat(32)).unwrap();
+    fs::write(keys.path().join("agent.permissions"), "unknown:read\n").unwrap();
+    assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
+
+    fs::remove_file(keys.path().join("agent.token")).unwrap();
+    fs::write(keys.path().join("agent.ro.token"), "ab".repeat(32)).unwrap();
+    fs::write(keys.path().join("agent.permissions"), "a:read-write\n").unwrap();
+    assert!(Service::from_config(keys_config(vault.path(), keys.path()), |_| None).is_err());
 }

@@ -34,7 +34,9 @@ jobs:
       - name: Build disposable test images
         run: |
           docker compose version
-          sh -n deploy/initialize.sh deploy/sync-entrypoint.sh
+          sh -n deploy/initialize.sh deploy/add-agent.sh \
+            deploy/sync-entrypoint.sh
+          node --check deploy/sync-supervisor.mjs
           docker build -f deploy/Dockerfile -t lilvault-gateway:0.1.0 .
           docker build -f deploy/Dockerfile.sync \
             -t lilvault-sync:0.0.14-node26.13.0 .

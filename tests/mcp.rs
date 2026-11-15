@@ -7,7 +7,7 @@ use axum::{
 use http_body_util::BodyExt;
 use lilvault::{
     MAX_FILE_BYTES,
-    config::{Agent, Auth, Config, Server, Vault},
+    config::{Agent, Auth, Config, Server, Vault, VaultRegistry},
     http,
     service::Service,
 };
@@ -49,6 +49,7 @@ impl Fixture {
                 ..Server::default()
             },
             auth: Auth::default(),
+            vault_registry: VaultRegistry::default(),
             vaults: ["a", "b"]
                 .into_iter()
                 .map(|id| Vault {

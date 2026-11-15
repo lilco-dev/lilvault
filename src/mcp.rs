@@ -107,7 +107,11 @@ impl Mcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let agent = agent(&ctx)?;
-        result(Ok(json!({"vaults":self.service.list_vaults(&agent)})))
+        result(
+            self.service
+                .list_vaults(&agent)
+                .map(|vaults| json!({"vaults":vaults})),
+        )
     }
 
     #[tool(

@@ -16,7 +16,7 @@ done
 # shortcut: use a DNS/IPv4 authority here; custom bracketed IPv6 needs custom TOML.
 case "$host" in *[!a-zA-Z0-9.:-]*) echo 'MCP host must be a plain host[:port], not a URL.' >&2; exit 1 ;; esac
 
-for directory in /stack /stack/config /stack/agents /stack/vaults /stack/vaults/agents /stack/sync-auth /runtime; do
+for directory in /stack /stack/config /stack/agents /stack/registry /stack/vaults /stack/vaults/agents /stack/sync-auth /runtime; do
     if [ -L "$directory" ] || { [ -e "$directory" ] && [ ! -d "$directory" ]; }; then
         echo 'Refusing a symlink or non-directory in the stack layout.' >&2
         exit 1
@@ -24,6 +24,38 @@ for directory in /stack /stack/config /stack/agents /stack/vaults /stack/vaults/
     mkdir -p "$directory"
     chown "$uid:$gid" "$directory"
     chmod 0700 "$directory"
+done
+
+# Preserve existing single-vault installs while moving agent keys to explicit scopes.
+marker_file=/stack/registry/agents
+if [ -L "$marker_file" ] || { [ -e "$marker_file" ] && [ ! -f "$marker_file" ]; }; then
+    echo 'Refusing an unsafe agents registry marker.' >&2
+    exit 1
+fi
+if [ ! -e "$marker_file" ]; then
+    printf 'agents\n' > "$marker_file"
+    chown "$uid:$gid" "$marker_file"
+    chmod 0600 "$marker_file"
+fi
+for key in /stack/agents/*.token; do
+    [ -e "$key" ] || [ -L "$key" ] || continue
+    if [ -L "$key" ] || [ ! -f "$key" ]; then
+        echo 'Refusing an unsafe existing agent key.' >&2
+        exit 1
+    fi
+    base=$(basename "$key" .token)
+    name=${base%.ro}
+    permissions="/stack/agents/$name.permissions"
+    if [ -L "$permissions" ] || { [ -e "$permissions" ] && [ ! -f "$permissions" ]; }; then
+        echo 'Refusing an unsafe agent permissions file.' >&2
+        exit 1
+    fi
+    if [ ! -e "$permissions" ]; then
+        if [ "$base" != "$name" ]; then access=read; else access=read-write; fi
+        printf 'agents:%s\n' "$access" > "$permissions"
+        chown "$uid:$gid" "$permissions"
+        chmod 0600 "$permissions"
+    fi
 done
 
 config=/stack/config/gateway.generated.toml
@@ -52,7 +84,7 @@ trap 'exit 1' HUP INT TERM
     else
         printf 'mcp_allowed_hosts = ["localhost", "127.0.0.1", "::1"]\n'
     fi
-    printf '\n[[vaults]]\nid = "agents"\npath = "/data/vaults/agents"\nenabled = true\n'
+    printf '\n[vault_registry]\ndir = "/registry"\nroot = "/data/vaults"\n'
     printf '\n[auth]\nkeys_dir = "/agents"\n'
 } > "$temporary"
 chown "$uid:$gid" "$temporary"

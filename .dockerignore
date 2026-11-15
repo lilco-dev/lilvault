@@ -11,3 +11,4 @@ deploy/**
 !deploy/initialize.sh
 !deploy/add-agent.sh
 !deploy/sync-entrypoint.sh
+!deploy/sync-supervisor.mjs

@@ -64,6 +64,12 @@ services:
         bind:
           create_host_path: true
       - type: bind
+        source: "${LILVAULT_ROOT}/registry"
+        target: /registry
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
         source: "${LILVAULT_ROOT}/vaults"
         target: /data/vaults
         bind:
@@ -91,8 +97,13 @@ services:
       - /tmp:rw,noexec,nosuid,size=64m
     volumes:
       - type: bind
-        source: "${LILVAULT_ROOT}/vaults/agents"
-        target: /vaults/agents
+        source: "${LILVAULT_ROOT}/vaults"
+        target: /vaults
+        bind:
+          create_host_path: true
+      - type: bind
+        source: "${LILVAULT_ROOT}/registry"
+        target: /registry
         bind:
           create_host_path: true
       - type: bind

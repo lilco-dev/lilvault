@@ -108,8 +108,8 @@ async fn ready(State(service): State<Arc<Service>>) -> Result<Response, Error> {
 async fn vaults(
     State(service): State<Arc<Service>>,
     Extension(agent): Extension<Agent>,
-) -> Json<serde_json::Value> {
-    Json(json!({"vaults":service.list_vaults(&agent)}))
+) -> Result<Json<serde_json::Value>, Error> {
+    Ok(Json(json!({"vaults":service.list_vaults(&agent)?})))
 }
 
 #[derive(Default, Deserialize)]
