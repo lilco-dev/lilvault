@@ -120,7 +120,9 @@ fn parse_permissions(
             "permissions must be vault:read, vault:read-write or auth:manage",
         ))?;
         if !vaults.contains_key(vault) {
-            return Err(ConfigError("permissions refer to an unknown or disabled vault"));
+            return Err(ConfigError(
+                "permissions refer to an unknown or disabled vault",
+            ));
         }
         let level = match level {
             "read" => Access::Read,
@@ -452,8 +454,7 @@ impl Service {
             if !digests.insert(digest) {
                 return Err(ConfigError("agent bearer tokens must be distinct"));
             }
-            let (access, auth_manager) =
-                parse_permissions(permissions, &vaults)?;
+            let (access, auth_manager) = parse_permissions(permissions, &vaults)?;
             credentials.push(Credential {
                 digest,
                 agent: Agent {
