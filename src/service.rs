@@ -23,11 +23,27 @@ pub enum Access {
 
 #[derive(Clone)]
 pub struct Agent {
+    name: String,
     permissions: HashMap<String, Access>,
+    auth_manager: bool,
+}
+impl Agent {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn auth_manager(&self) -> bool {
+        self.auth_manager
+    }
 }
 struct Credential {
     digest: [u8; 32],
     agent: Agent,
+}
+
+#[derive(Serialize)]
+pub struct AgentInfo {
+    pub name: String,
+    pub permissions: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -49,7 +65,8 @@ pub struct Service {
     pub(crate) mcp_allowed_hosts: Vec<String>,
     vaults: RwLock<BTreeMap<String, Arc<Vault>>>,
     registry: Option<Registry>,
-    credentials: Vec<Credential>,
+    credentials: RwLock<Vec<Credential>>,
+    keys_dir: Option<PathBuf>,
 }
 
 struct Registry {
@@ -79,6 +96,95 @@ fn safe_regular_file(metadata: &std::fs::Metadata, max_bytes: u64) -> bool {
 
 fn digest(value: &str) -> [u8; 32] {
     Sha256::digest(value.as_bytes()).into()
+}
+
+/// Parses a permission list into (vault access, auth-manager flag).
+/// `auth:manage` is the reserved pseudo-vault that grants the
+/// /v1/auth/agents minting surface; everything else must be
+/// `vault:read` or `vault:read-write` against a known vault.
+fn parse_permissions(
+    permissions: Vec<String>,
+    vaults: &BTreeMap<String, Arc<Vault>>,
+) -> Result<(HashMap<String, Access>, bool), ConfigError> {
+    let mut access = HashMap::new();
+    let mut auth_manager = false;
+    for permission in permissions {
+        if permission == "auth:manage" {
+            if auth_manager {
+                return Err(ConfigError("duplicate auth:manage permission for an agent"));
+            }
+            auth_manager = true;
+            continue;
+        }
+        let (vault, level) = permission.split_once(':').ok_or(ConfigError(
+            "permissions must be vault:read, vault:read-write or auth:manage",
+        ))?;
+        if !vaults.contains_key(vault) {
+            return Err(ConfigError("permissions refer to an unknown or disabled vault"));
+        }
+        let level = match level {
+            "read" => Access::Read,
+            "read-write" => Access::ReadWrite,
+            _ => {
+                return Err(ConfigError(
+                    "permissions must be vault:read, vault:read-write or auth:manage",
+                ));
+            }
+        };
+        if access.insert(vault.to_owned(), level).is_some() {
+            return Err(ConfigError("duplicate vault permission for an agent"));
+        }
+    }
+    if access.is_empty() && !auth_manager {
+        return Err(ConfigError("each agent requires at least one permission"));
+    }
+    Ok((access, auth_manager))
+}
+
+fn permission_strings(permissions: &HashMap<String, Access>, auth_manager: bool) -> Vec<String> {
+    let mut out: Vec<String> = permissions
+        .iter()
+        .map(|(vault, level)| {
+            format!(
+                "{vault}:{}",
+                match level {
+                    Access::Read => "read",
+                    Access::ReadWrite => "read-write",
+                }
+            )
+        })
+        .collect();
+    out.sort();
+    if auth_manager {
+        out.push("auth:manage".into());
+    }
+    out
+}
+
+// shortcut: /dev/urandom — fine for the Linux/mac deployment targets; swap
+// for the getrandom crate if this ever targets a non-POSIX host.
+fn random_token() -> Result<String, Error> {
+    use std::io::Read;
+    let mut bytes = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .map_err(error::io)?
+        .read_exact(&mut bytes)
+        .map_err(error::io)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// Writes a key file 0600 and never through a symlink — same intent as
+/// lilvault-add-agent's `umask 077`, but not TOCTOU-open to a planted link.
+fn write_private(path: &Path, contents: &str) -> Result<(), Error> {
+    use rustix::fs::{Mode, OFlags};
+    let fd = rustix::fs::open(
+        path,
+        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::from(0o600u32),
+    )
+    .map_err(|_| Error::Unavailable)?;
+    rustix::io::write(&fd, contents.as_bytes()).map_err(|_| Error::Unavailable)?;
+    Ok(())
 }
 
 /// Loads one token plus an explicit vault permission sidecar per agent.
@@ -299,13 +405,14 @@ impl Service {
         let mut names = HashSet::new();
         let mut digests = HashSet::new();
         let mut credentials = Vec::new();
-        let entries = if let Some(dir) = config.auth.keys_dir {
+        let keys_dir = config.auth.keys_dir;
+        let entries = if let Some(dir) = &keys_dir {
             if !config.agents.is_empty() {
                 return Err(ConfigError(
                     "an agent key directory cannot be combined with explicit agent entries",
                 ));
             }
-            load_keys(&dir)?
+            load_keys(dir)?
         } else {
             config
                 .agents
@@ -333,7 +440,7 @@ impl Service {
             tracing::warn!("no agent keys loaded; every request is denied until a key is added");
         }
         for (name, token, permissions) in entries {
-            if !identifier(&name) || !names.insert(name) {
+            if !identifier(&name) || !names.insert(name.clone()) {
                 return Err(ConfigError("agent names must be valid unique identifiers"));
             }
             if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -345,36 +452,14 @@ impl Service {
             if !digests.insert(digest) {
                 return Err(ConfigError("agent bearer tokens must be distinct"));
             }
-            let mut access = HashMap::new();
-            for permission in permissions {
-                let (vault, level) = permission.split_once(':').ok_or(ConfigError(
-                    "permissions must be vault:read or vault:read-write",
-                ))?;
-                if !vaults.contains_key(vault) {
-                    return Err(ConfigError(
-                        "permissions refer to an unknown or disabled vault",
-                    ));
-                }
-                let level = match level {
-                    "read" => Access::Read,
-                    "read-write" => Access::ReadWrite,
-                    _ => {
-                        return Err(ConfigError(
-                            "permissions must be vault:read or vault:read-write",
-                        ));
-                    }
-                };
-                if access.insert(vault.to_owned(), level).is_some() {
-                    return Err(ConfigError("duplicate vault permission for an agent"));
-                }
-            }
-            if access.is_empty() {
-                return Err(ConfigError("each agent requires at least one permission"));
-            }
+            let (access, auth_manager) =
+                parse_permissions(permissions, &vaults)?;
             credentials.push(Credential {
                 digest,
                 agent: Agent {
+                    name,
                     permissions: access,
+                    auth_manager,
                 },
             });
         }
@@ -383,19 +468,87 @@ impl Service {
             mcp_allowed_hosts: config.server.mcp_allowed_hosts,
             vaults: RwLock::new(vaults),
             registry,
-            credentials,
+            credentials: RwLock::new(credentials),
+            keys_dir,
         })
     }
 
     pub fn authenticate(&self, token: &str) -> Option<Agent> {
         let candidate = digest(token);
+        let credentials = self.credentials.read().ok()?;
         let mut result = None;
-        for credential in &self.credentials {
+        for credential in credentials.iter() {
             if bool::from(credential.digest.ct_eq(&candidate)) {
                 result = Some(credential.agent.clone());
             }
         }
         result
+    }
+
+    pub fn list_agents(&self) -> Result<Vec<AgentInfo>, Error> {
+        let credentials = self.credentials.read().map_err(|_| Error::Unavailable)?;
+        let mut agents: Vec<AgentInfo> = credentials
+            .iter()
+            .map(|credential| AgentInfo {
+                name: credential.agent.name.clone(),
+                permissions: permission_strings(
+                    &credential.agent.permissions,
+                    credential.agent.auth_manager,
+                ),
+            })
+            .collect();
+        agents.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(agents)
+    }
+
+    /// Mints (or rotates) an agent token: the 64-hex token is returned once
+    /// and only its digest is kept in memory. Persistence is the
+    /// `auth.keys_dir` pair `<name>.token` + `<name>.permissions`; without a
+    /// key directory there is nowhere durable to put a minted token, so the
+    /// call is refused rather than minting something a restart would drop.
+    pub fn mint_agent(&self, name: &str, permissions: Vec<String>) -> Result<String, Error> {
+        let dir = self.keys_dir.as_ref().ok_or(Error::KeysDirRequired)?;
+        if !identifier(name) {
+            return Err(Error::BadRequest);
+        }
+        let vaults = self.current_vaults()?;
+        let (access, auth_manager) =
+            parse_permissions(permissions, &vaults).map_err(|_| Error::BadRequest)?;
+        let token = random_token()?;
+        // Sidecar first: if the token write then fails, the previous token and
+        // its old permissions remain a valid pair and the mint reports an error.
+        let sidecar = permission_strings(&access, auth_manager).join("\n") + "\n";
+        write_private(&dir.join(format!("{name}.permissions")), &sidecar)?;
+        write_private(&dir.join(format!("{name}.token")), &token)?;
+        let mut credentials = self.credentials.write().map_err(|_| Error::Unavailable)?;
+        credentials.retain(|credential| credential.agent.name != name);
+        credentials.push(Credential {
+            digest: digest(&token),
+            agent: Agent {
+                name: name.to_owned(),
+                permissions: access,
+                auth_manager,
+            },
+        });
+        Ok(token)
+    }
+
+    pub fn revoke_agent(&self, name: &str) -> Result<(), Error> {
+        let dir = self.keys_dir.as_ref().ok_or(Error::KeysDirRequired)?;
+        let mut credentials = self.credentials.write().map_err(|_| Error::Unavailable)?;
+        let before = credentials.len();
+        credentials.retain(|credential| credential.agent.name != name);
+        if credentials.len() == before {
+            return Err(Error::NotFound);
+        }
+        for file in [format!("{name}.token"), format!("{name}.ro.token")] {
+            let path = dir.join(file);
+            if path.exists() {
+                std::fs::remove_file(path).map_err(error::io)?;
+            }
+        }
+        let _ = std::fs::remove_file(dir.join(format!("{name}.permissions")));
+        Ok(())
     }
 
     fn current_vaults(&self) -> Result<BTreeMap<String, Arc<Vault>>, Error> {

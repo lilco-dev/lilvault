@@ -8,8 +8,8 @@ use axum::{
     Extension, Json, Router,
     body::Bytes,
     extract::{
-        DefaultBodyLimit, Path, Query, Request, State,
-        rejection::{BytesRejection, PathRejection, QueryRejection},
+        DefaultBodyLimit, Json as JsonBody, Path, Query, Request, State,
+        rejection::{BytesRejection, JsonRejection, PathRejection, QueryRejection},
     },
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -24,6 +24,8 @@ type FilePath = Result<Path<(String, String)>, PathRejection>;
 
 pub fn router(service: Arc<Service>) -> Router {
     let api = Router::new()
+        .route("/auth/agents", get(list_agents).post(mint_agent))
+        .route("/auth/agents/{name}", axum::routing::delete(revoke_agent))
         .route("/vaults", get(vaults))
         .route("/vaults/{vault}/status", get(status))
         .route("/vaults/{vault}/search", get(search))
@@ -264,4 +266,68 @@ async fn write(
         .into_response();
     response.headers_mut().insert(header::ETAG, etag);
     Ok(response)
+}
+
+// --- agent minting (shared lilco surface; lilboard exposes the same JSON
+// shape at /api/auth/agents) -----------------------------------------------
+
+fn require_manager(agent: &Agent) -> Result<(), Error> {
+    if agent.auth_manager() {
+        Ok(())
+    } else {
+        Err(Error::NotManager)
+    }
+}
+
+async fn list_agents(
+    State(service): State<Arc<Service>>,
+    Extension(agent): Extension<Agent>,
+) -> Result<Json<serde_json::Value>, Error> {
+    require_manager(&agent)?;
+    let agents = work(move || service.list_agents()).await?;
+    Ok(Json(json!({"agents": agents})))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MintAgent {
+    name: String,
+    #[serde(default)]
+    permissions: Vec<String>,
+}
+
+async fn mint_agent(
+    State(service): State<Arc<Service>>,
+    Extension(agent): Extension<Agent>,
+    body: Result<JsonBody<MintAgent>, JsonRejection>,
+) -> Result<Response, Error> {
+    require_manager(&agent)?;
+    let JsonBody(MintAgent { name, permissions }) = body.map_err(|_| Error::BadRequest)?;
+    let token = work({
+        let name = name.clone();
+        let permissions = permissions.clone();
+        move || service.mint_agent(&name, permissions)
+    })
+    .await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({"name": name, "token": token, "permissions": permissions})),
+    )
+        .into_response())
+}
+
+async fn revoke_agent(
+    State(service): State<Arc<Service>>,
+    Extension(agent): Extension<Agent>,
+    name: Result<Path<String>, PathRejection>,
+) -> Result<StatusCode, Error> {
+    require_manager(&agent)?;
+    let Path(name) = name.map_err(|_| Error::BadPath)?;
+    // Self-revocation is refused so one bad request cannot lock every
+    // manager out of the minting surface.
+    if name == agent.name() {
+        return Err(Error::BadRequest);
+    }
+    work(move || service.revoke_agent(&name)).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

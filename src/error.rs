@@ -15,6 +15,10 @@ pub enum Error {
     Unauthorized,
     #[error("credential has read-only access")]
     Forbidden,
+    #[error("token minting requires the auth:manage permission")]
+    NotManager,
+    #[error("agent management requires an auth.keys_dir key directory")]
+    KeysDirRequired,
     #[error("a create-only or matching-revision precondition is required")]
     PreconditionRequired,
     #[error("revision precondition did not match")]
@@ -36,6 +40,8 @@ impl Error {
             Self::NotFound => "not_found",
             Self::Unauthorized => "unauthorized",
             Self::Forbidden => "forbidden",
+            Self::NotManager => "auth_manager_required",
+            Self::KeysDirRequired => "keys_dir_required",
             Self::PreconditionRequired => "precondition_required",
             Self::PreconditionFailed => "precondition_failed",
             Self::BadRequest => "invalid_request",
@@ -51,6 +57,8 @@ impl Error {
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::NotManager => StatusCode::FORBIDDEN,
+            Self::KeysDirRequired => StatusCode::CONFLICT,
             Self::PreconditionRequired => StatusCode::PRECONDITION_REQUIRED,
             Self::PreconditionFailed => StatusCode::PRECONDITION_FAILED,
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,

@@ -15,6 +15,7 @@ use tower::ServiceExt;
 const WRITER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const READER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const OTHER: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const ADMIN: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
 struct Harness {
     root: TempDir,
@@ -52,6 +53,10 @@ permissions = ["a:read"]
 name = "other"
 token_env = "OTHER"
 permissions = ["b:read-write"]
+[[agents]]
+name = "admin"
+token_env = "ADMIN"
+permissions = ["a:read-write", "auth:manage"]
 "#,
             root.path().join("a").display(),
             root.path().join("b").display()
@@ -60,6 +65,7 @@ permissions = ["b:read-write"]
             "WRITER" => Some(WRITER.into()),
             "READER" => Some(READER.into()),
             "OTHER" => Some(OTHER.into()),
+            "ADMIN" => Some(ADMIN.into()),
             _ => None,
         })
         .unwrap();
@@ -618,4 +624,195 @@ async fn status_reports_local_availability_and_unknown_sync() {
     );
     let value = json(h.get("/v1/vaults/b/status", OTHER).await).await;
     assert_eq!(value["access"], "read-write");
+}
+
+// --- agent minting (shared lilco surface) ----------------------------------
+
+const MANAGER: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+const PLAIN: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+
+struct KeysHarness {
+    app: Router,
+    keys: tempfile::TempDir,
+    root: tempfile::TempDir,
+}
+
+impl KeysHarness {
+    fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("v")).unwrap();
+        let keys = tempfile::tempdir().unwrap();
+        fs::write(keys.path().join("manager.token"), MANAGER).unwrap();
+        fs::write(
+            keys.path().join("manager.permissions"),
+            "v:read-write\nauth:manage\n",
+        )
+        .unwrap();
+        fs::write(keys.path().join("plain.token"), PLAIN).unwrap();
+        fs::write(keys.path().join("plain.permissions"), "v:read\n").unwrap();
+        let text = format!(
+            r#"
+[auth]
+keys_dir = "{}"
+[[vaults]]
+id = "v"
+path = "{}"
+"#,
+            keys.path().display(),
+            root.path().join("v").display()
+        );
+        let service = Service::from_config(Config::parse(&text).unwrap(), |_| None).unwrap();
+        Self {
+            app: http::router(Arc::new(service)),
+            keys,
+            root,
+        }
+    }
+
+    async fn request(&self, method: &str, uri: &str, token: &str, body: &str) -> Response {
+        self.app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_owned()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    async fn json_request(&self, method: &str, uri: &str, token: &str, body: &str) -> Value {
+        json(self.request(method, uri, token, body).await).await
+    }
+}
+
+#[tokio::test]
+async fn agent_minting_round_trip() {
+    let h = KeysHarness::new();
+
+    // Only auth:manage may mint.
+    let r = h
+        .request(
+            "POST",
+            "/v1/auth/agents",
+            PLAIN,
+            r#"{"name":"newbie","permissions":["v:read"]}"#,
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert_eq!(json(r).await["error"]["code"], "auth_manager_required");
+
+    // Invalid permissions are rejected.
+    let r = h
+        .request(
+            "POST",
+            "/v1/auth/agents",
+            MANAGER,
+            r#"{"name":"newbie","permissions":["nope:read"]}"#,
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+
+    // Mint: 64-hex token in the response, persisted as the keys-dir pair.
+    let r = h
+        .request(
+            "POST",
+            "/v1/auth/agents",
+            MANAGER,
+            r#"{"name":"newbie","permissions":["v:read"]}"#,
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::CREATED);
+    let value = json(r).await;
+    let token = value["token"].as_str().unwrap().to_owned();
+    assert_eq!(token.len(), 64);
+    assert!(token.bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_eq!(
+        fs::read_to_string(h.keys.path().join("newbie.token")).unwrap(),
+        token
+    );
+    assert_eq!(
+        fs::read_to_string(h.keys.path().join("newbie.permissions")).unwrap(),
+        "v:read\n"
+    );
+
+    // The minted token authenticates.
+    let r = h.request("GET", "/v1/vaults", &token, "").await;
+    assert_eq!(r.status(), StatusCode::OK);
+
+    // Re-minting the same name rotates: the old token stops working.
+    let rotated = h
+        .json_request(
+            "POST",
+            "/v1/auth/agents",
+            MANAGER,
+            r#"{"name":"newbie","permissions":["v:read"]}"#,
+        )
+        .await["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(rotated, token);
+    let r = h.request("GET", "/v1/vaults", &token, "").await;
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+
+    // Listing shows names and permissions but never tokens.
+    let raw = body(h.request("GET", "/v1/auth/agents", MANAGER, "").await).await;
+    let text = String::from_utf8(raw.clone()).unwrap();
+    assert!(!text.contains(&rotated));
+    let value: Value = serde_json::from_slice(&raw).unwrap();
+    let names: Vec<&str> = value["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|agent| agent["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["manager", "newbie", "plain"]);
+
+    // Self-revocation is refused.
+    let r = h
+        .request("DELETE", "/v1/auth/agents/manager", MANAGER, "")
+        .await;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+
+    // Revoke: files gone, token dead, second revoke is a 404.
+    let r = h
+        .request("DELETE", "/v1/auth/agents/newbie", MANAGER, "")
+        .await;
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    assert!(!h.keys.path().join("newbie.token").exists());
+    let r = h.request("GET", "/v1/vaults", &rotated, "").await;
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    let r = h
+        .request("DELETE", "/v1/auth/agents/newbie", MANAGER, "")
+        .await;
+    assert_eq!(r.status(), StatusCode::NOT_FOUND);
+
+    // Keep the root tempdir alive for the whole test.
+    drop(h.root.path());
+}
+
+#[tokio::test]
+async fn minting_requires_a_keys_directory() {
+    let h = Harness::new();
+    let r = h
+        .request(
+            "POST",
+            "/v1/auth/agents",
+            Some(ADMIN),
+            &[("content-type", "application/json")],
+            r#"{"name":"x","permissions":["a:read"]}"#,
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::CONFLICT);
+    assert_eq!(json(r).await["error"]["code"], "keys_dir_required");
+    // Listing still works without a key directory.
+    let r = h
+        .request("GET", "/v1/auth/agents", Some(ADMIN), &[], Body::empty())
+        .await;
+    assert_eq!(r.status(), StatusCode::OK);
 }

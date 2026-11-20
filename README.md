@@ -10,7 +10,7 @@ A self-hostable gateway that exposes your existing Obsidian Sync vaults to AI ag
 - **Your vaults, unchanged**: one Sync container supervises one official Headless process per registered vault and restarts failed children with bounded backoff. Add another vault interactively without editing Compose or restarting the gateway.
 - **Official synchronization**: the Headless client syncs bidirectionally with your existing Obsidian Sync subscription. The gateway only reads and writes local files; it never reverse-engineers the sync protocol.
 - **Safe by default**: fail-closed configuration, vault-scoped bearer credentials, Linux descriptor-relative path operations (no traversal or symlink escapes), conditional writes and deletes with SHA-256 revision ETags, and size/deadline limits everywhere.
-- **Scoped agent credentials**: one token and one explicit vault-permissions file per agent, managed with `lilvault-add-agent` — no secrets in environment variables or images.
+- **Scoped agent credentials**: one token and one explicit vault-permissions file per agent, managed with `lilvault-add-agent` — no secrets in environment variables or images. An agent holding the reserved `auth:manage` permission can also mint and revoke other agents' tokens over HTTP (`POST/GET/DELETE /v1/auth/agents`) — the same surface lilboard exposes at `/api/auth/agents`.
 - **Honest consistency**: write success means the local filesystem accepted it, never a claim of cloud synchronization; status reports `unknown` for cloud state the gateway cannot observe.
 
 See the [MCP contract](docs/MCP.md) for the tool reference, the [REST contract](docs/API.md) for routes and filesystem guarantees, and [SPEC.md](SPEC.md) for scope and design decisions.

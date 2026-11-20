@@ -72,6 +72,36 @@ docker restart <gateway>                    # reload credentials; Sync is untouc
 
 For a new name, the command prompts for the token rather than accepting it as an argument. For an existing name it preserves the token and atomically replaces only the permission file, which is how an administrator grants a newly added vault. Removing both files and restarting revokes the credential. Existing unscoped single-vault keys are migrated once to `agents:read` or `agents:read-write` by the initializer; new vaults are never granted automatically.
 
+### Minting over HTTP
+
+An agent holding the reserved `auth:manage` permission (a line in its
+`.permissions` file) can mint and revoke other agents' tokens at runtime — no
+container restart. The surface is the same shape as lilboard's
+`/api/auth/agents`, so one operator agent manages both services with identical
+calls:
+
+```sh
+MCP_BASE=https://vault.example:9443
+ADMIN=$(docker exec <gateway> cat /agents/<manager>.token)
+
+# mint — or rotate by re-posting the same name; the token is shown once
+curl -X POST $MCP_BASE/v1/auth/agents -H "Authorization: Bearer $ADMIN" \
+  -H "content-type: application/json" \
+  -d '{"name": "claude", "permissions": ["agents:read-write"]}'
+# 201 {"name":"claude","permissions":["agents:read-write"],"token":"<64hex>"}
+
+# list (names and permissions only, never tokens)
+curl $MCP_BASE/v1/auth/agents -H "Authorization: Bearer $ADMIN"
+
+# revoke (204; your own token is refused)
+curl -X DELETE $MCP_BASE/v1/auth/agents/claude -H "Authorization: Bearer $ADMIN"
+```
+
+Minted keys are written into `agents` as a `<name>.token` + `<name>.permissions`
+pair, so they survive restarts and stay visible to `lilvault-add-agent`. Without
+an `[auth] keys_dir` (explicit `[[agents]]` entries only), minting returns 409 —
+the environment-configured token set has no durable store to write to.
+
 Startup **fails closed** if token/permission entries are symlinks, directories, malformed, oversized, duplicated, or refer to an unregistered vault. An empty key directory is allowed and denies every request. Never paste tokens into chat, Git, screenshots, or command arguments.
 
 ## Official Headless installation and login

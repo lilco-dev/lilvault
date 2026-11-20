@@ -13,6 +13,9 @@ enabled = true
 # explicit entries with tokens from the environment. Each <agent>.token contains
 # one 64-hex token and requires <agent>.permissions with one explicit
 # vault:read or vault:read-write line per authorized vault.
+# `auth:manage` is the reserved permission that lets an agent mint and revoke
+# tokens at runtime via POST/GET/DELETE /v1/auth/agents (requires keys_dir —
+# minted tokens are persisted there as a <name>.token/.permissions pair).
 [auth]
 keys_dir = "/absolute/path/to/agent-keys"
 
