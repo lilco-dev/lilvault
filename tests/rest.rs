@@ -634,7 +634,8 @@ const PLAIN: &str = "11111111111111111111111111111111111111111111111111111111111
 struct KeysHarness {
     app: Router,
     keys: tempfile::TempDir,
-    root: tempfile::TempDir,
+    // Held only so the vault temp dir outlives the service.
+    _root: tempfile::TempDir,
 }
 
 impl KeysHarness {
@@ -665,7 +666,7 @@ path = "{}"
         Self {
             app: http::router(Arc::new(service)),
             keys,
-            root,
+            _root: root,
         }
     }
 
@@ -791,9 +792,6 @@ async fn agent_minting_round_trip() {
         .request("DELETE", "/v1/auth/agents/newbie", MANAGER, "")
         .await;
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
-
-    // Keep the root tempdir alive for the whole test.
-    drop(h.root.path());
 }
 
 #[tokio::test]
