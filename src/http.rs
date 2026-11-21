@@ -26,6 +26,7 @@ pub fn router(service: Arc<Service>) -> Router {
     let api = Router::new()
         .route("/auth/agents", get(list_agents).post(mint_agent))
         .route("/auth/agents/{name}", axum::routing::delete(revoke_agent))
+        .route("/auth/vaults", get(grantable_vaults))
         .route("/vaults", get(vaults))
         .route("/vaults/{vault}/status", get(status))
         .route("/vaults/{vault}/search", get(search))
@@ -286,6 +287,15 @@ async fn list_agents(
     require_manager(&agent)?;
     let agents = work(move || service.list_agents()).await?;
     Ok(Json(json!({"agents": agents})))
+}
+
+async fn grantable_vaults(
+    State(service): State<Arc<Service>>,
+    Extension(agent): Extension<Agent>,
+) -> Result<Json<serde_json::Value>, Error> {
+    require_manager(&agent)?;
+    let vaults = work(move || service.grantable_vaults()).await?;
+    Ok(Json(json!({"vaults": vaults})))
 }
 
 #[derive(Deserialize)]

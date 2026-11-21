@@ -56,7 +56,7 @@ permissions = ["b:read-write"]
 [[agents]]
 name = "admin"
 token_env = "ADMIN"
-permissions = ["a:read-write", "auth:manage"]
+permissions = ["auth:manage"]
 "#,
             root.path().join("a").display(),
             root.path().join("b").display()
@@ -792,6 +792,24 @@ async fn agent_minting_round_trip() {
         .request("DELETE", "/v1/auth/agents/newbie", MANAGER, "")
         .await;
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn managers_can_list_grantable_vaults_without_data_access() {
+    let h = Harness::new();
+    let r = h.get("/v1/auth/vaults", ADMIN).await;
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(json(r).await["vaults"], serde_json::json!(["a", "b"]));
+    assert_eq!(
+        json(h.get("/v1/vaults", ADMIN).await).await["vaults"],
+        serde_json::json!([])
+    );
+    let r = h.get("/v1/auth/vaults", READER).await;
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    let r = h
+        .request("GET", "/v1/auth/vaults", None, &[], Body::empty())
+        .await;
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

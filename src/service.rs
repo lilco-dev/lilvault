@@ -486,6 +486,12 @@ impl Service {
         result
     }
 
+    // Managers may grant access to any registered vault, even if their own
+    // credential has auth:manage only and cannot read vault contents.
+    pub fn grantable_vaults(&self) -> Result<Vec<String>, Error> {
+        Ok(self.current_vaults()?.into_keys().collect())
+    }
+
     pub fn list_agents(&self) -> Result<Vec<AgentInfo>, Error> {
         let credentials = self.credentials.read().map_err(|_| Error::Unavailable)?;
         let mut agents: Vec<AgentInfo> = credentials

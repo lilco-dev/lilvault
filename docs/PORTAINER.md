@@ -93,11 +93,17 @@ curl -X POST $MCP_BASE/v1/auth/agents -H "Authorization: Bearer $ADMIN" \
 # list (names and permissions only, never tokens)
 curl $MCP_BASE/v1/auth/agents -H "Authorization: Bearer $ADMIN"
 
+# list registered vault IDs to populate per-vault grant selectors
+curl $MCP_BASE/v1/auth/vaults -H "Authorization: Bearer $ADMIN"
+# {"vaults":["agents","brain"]}
+
 # revoke (204; your own token is refused)
 curl -X DELETE $MCP_BASE/v1/auth/agents/claude -H "Authorization: Bearer $ADMIN"
 ```
 
-Minted keys are written into `agents` as a `<name>.token` + `<name>.permissions`
+`GET /v1/auth/vaults` requires `auth:manage` and returns only current vault
+IDs, even when the manager has no data-read grants; it does not grant access to
+vault contents. Minted keys are written into `agents` as a `<name>.token` + `<name>.permissions`
 pair, so they survive restarts and stay visible to `lilvault-add-agent`. Without
 an `[auth] keys_dir` (explicit `[[agents]]` entries only), minting returns 409 —
 the environment-configured token set has no durable store to write to.
